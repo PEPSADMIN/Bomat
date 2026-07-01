@@ -1,0 +1,27 @@
+# Secrets
+.encryption_key
+ssl/*.pem
+ssl/*.key
+*.pem
+*.key
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Generated output
+output/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local tool/editor state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.vscode/

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PEPS BOM Tool — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#0f1923;--ink2:#3a4a5a;--ink3:#7a8a9a;
+  --line:#dde3ea;--bg:#f4f6f9;--surface:#ffffff;
+  --accent:#1a56db;--accent2:#0e3fa8;
+  --red:#b91c1c;--red-bg:#fef2f2;
+  --r:6px;--r2:10px;
+  --sh2:0 2px 8px rgba(0,0,0,.10),0 12px 32px rgba(0,0,0,.08);
+}
+html,body{height:100%;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--ink);background:var(--bg)}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+
+/* top bar */
+.top-bar{position:fixed;top:0;left:0;right:0;height:48px;background:var(--ink);display:flex;align-items:center;padding:0 24px;border-bottom:2px solid var(--accent)}
+.top-bar .logo{font-weight:600;font-size:14px;color:#fff;letter-spacing:.5px}
+.top-bar .logo span{color:#5b9bf8}
+
+/* card */
+.card{background:var(--surface);border-radius:var(--r2);box-shadow:var(--sh2);width:100%;max-width:400px;overflow:hidden}
+.card-header{background:var(--ink);padding:28px 32px 24px;text-align:center}
+.card-header .icon{width:48px;height:48px;background:rgba(255,255,255,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;border:2px solid rgba(255,255,255,.2)}
+.card-header h1{font-size:18px;font-weight:600;color:#fff;margin-bottom:4px}
+.card-header p{font-size:12.5px;color:rgba(255,255,255,.5)}
+.card-body{padding:28px 32px}
+
+.form-field{margin-bottom:18px}
+.form-field label{display:block;font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+.form-field input{width:100%;border:1.5px solid var(--line);border-radius:var(--r);padding:10px 12px;font:inherit;font-size:13.5px;color:var(--ink);background:var(--surface);transition:border-color .15s}
+.form-field input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(26,86,219,.12)}
+
+.btn-login{width:100%;padding:11px;border:none;border-radius:var(--r);background:var(--accent);color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;margin-top:4px}
+.btn-login:hover{background:var(--accent2)}
+.btn-login:active{transform:scale(.99)}
+
+.error-box{background:var(--red-bg);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:12.5px;color:var(--red);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+
+.help-text{text-align:center;margin-top:20px;font-size:12px;color:var(--ink3);line-height:1.6}
+.help-text strong{color:var(--ink2)}
+
+/* ── Background-task loader overlay ── */
+#bom-task-loader{position:fixed;inset:0;background:rgba(15,23,42,.62);z-index:99999;display:none;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+#bom-task-loader.active{display:flex}
+.btl-card{position:relative;background:#fff;border-radius:16px;padding:36px 44px 30px;min-width:330px;max-width:440px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.32)}
+.btl-close{position:absolute;top:12px;right:14px;background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px}
+.btl-close:hover{color:#374151;background:#f3f4f6}
+.btl-spinner{width:48px;height:48px;border:4px solid #e5e7eb;border-top-color:#1A56DB;border-radius:50%;animation:btl-spin .75s linear infinite;margin:0 auto 18px}
+@keyframes btl-spin{to{transform:rotate(360deg)}}
+.btl-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:5px;letter-spacing:-.01em}
+.btl-sub{font-size:12px;color:#6b7280;margin-bottom:20px;min-height:16px}
+.btl-bar-wrap{height:6px;background:#e5e7eb;border-radius:99px;overflow:hidden;margin-bottom:14px}
+.btl-bar{height:100%;width:38%;background:linear-gradient(90deg,#1A56DB,#60a5fa);border-radius:99px;animation:btl-slide 1.7s ease-in-out infinite}
+@keyframes btl-slide{0%{margin-left:-38%}100%{margin-left:100%}}
+.btl-warn{font-size:11px;color:#d97706;margin-top:2px}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="logo">PEPS <span>BOM</span> Tool</div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="icon">
+      <svg width="22" height="22" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <h1>Sign In</h1>
+    <p>PEPS BOM Automation Tool v2.1</p>
+  </div>
+
+  <div class="card-body">
+    {% if error %}
+    <div class="error-box">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/>
+      </svg>
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/login" autocomplete="on">
+      <div class="form-field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" placeholder="Enter your username"
+               autocomplete="username" autofocus required>
+      </div>
+      <div class="form-field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" placeholder="Enter your password"
+               autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn-login">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<div class="help-text">
+  <strong>Can't access your account?</strong><br>
+  Ask ERP team for help
+</div>
+
+<!-- Background-task loader overlay (shown when a BOM generation task is running) -->
+<div id="bom-task-loader">
+  <div class="btl-card">
+    <button type="button" class="btl-close" onclick="dismissTaskLoader()" title="Force close (use only if stuck)">✕</button>
+    <div class="btl-spinner"></div>
+    <div class="btl-title">Background Task Running</div>
+    <div class="btl-sub" id="btl-sub">BOM generation in progress…</div>
+    <div class="btl-bar-wrap"><div class="btl-bar"></div></div>
+    <div class="btl-warn">⚠ A background task is processing on the server</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var loader = document.getElementById('bom-task-loader');
+  var subEl  = document.getElementById('btl-sub');
+
+  window.dismissTaskLoader = function(){
+    sessionStorage.removeItem('bom_active_run_id');
+    loader.classList.remove('active');
+  };
+
+  var savedId = sessionStorage.getItem('bom_active_run_id');
+  if(!savedId) return;
+
+  (async function poll(){
+    try{
+      var r  = await fetch('/api/run/' + savedId + '/status');
+      var st = await r.json();
+      if(st.status !== 'running'){ sessionStorage.removeItem('bom_active_run_id'); return; }
+      loader.classList.add('active');
+      for(var i=0;i<200;i++){
+        await new Promise(function(res){ setTimeout(res, 3000); });
+        var r2  = await fetch('/api/run/' + savedId + '/status');
+        var st2 = await r2.json();
+        if(st2.status === 'OK' || st2.status === 'ERROR'){
+          sessionStorage.removeItem('bom_active_run_id');
+          if(subEl) subEl.textContent = st2.status === 'OK' ? 'Task completed successfully.' : 'Task encountered an error.';
+          setTimeout(function(){ loader.classList.remove('active'); }, 1500);
+          return;
+        }
+        if(subEl) subEl.textContent = 'BOM generation in progress… ' + Math.round(10 + i * 0.9) + '% complete';
+      }
+      sessionStorage.removeItem('bom_active_run_id');
+      loader.classList.remove('active');
+    }catch(e){ sessionStorage.removeItem('bom_active_run_id'); }
+  })();
+})();
+</script>
+
+</body>
+</html>
