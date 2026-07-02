@@ -5030,7 +5030,15 @@ async function confirmedExecuteReplace(){
                             affected_products:affected})
     });
     const d = await res.json();
-    if(d.pending){ toast(d.message,'ok'); repClearPreview(); return; }
+    if(d.pending){
+      // Pre-clear BOM cache for affected products so the BOM Viewer re-fetches
+      // fresh data the next time the user opens them (after approval executes).
+      _execAffected.forEach(ap=>{
+        const p=S.flat.find(f=>f.filepath===ap.filepath);
+        if(p) p._bomLoaded=false;
+      });
+      toast(d.message,'ok'); repClearPreview(); return;
+    }
     if(d.error){ toast(d.error,'err'); return; }
 
     S.flat.forEach(p=>{
@@ -5193,8 +5201,17 @@ async function _loadCloneComponents(productId){
       status:'ok'
     }));
 
+    // Extract unique colour codes from all SKUs in the cloned product so
+    // Step 4's colour datalist shows source-product colours at the top.
+    const skuColours = [];
+    (d.skus||[]).forEach(s=>{
+      if(s.colour && !skuColours.includes(s.colour)) skuColours.push(s.colour);
+    });
+    if(skuColours.length) populateColourDatalist(skuColours);
+
     renderCompRows();
-    toast(`✓ ${S.compRows.length} components loaded from base product — review and adjust for new product`,'ok');
+    const clrHint = skuColours.length ? ` | Colours available: ${skuColours.join(', ')}` : '';
+    toast(`✓ ${S.compRows.length} components loaded from base product — review and adjust for new product${clrHint}`,'ok');
   }catch(e){
     toast('Failed to load base components: '+e.message,'err');
   }
@@ -5325,19 +5342,33 @@ function cloneSrcChanged(){
   const pid = sel?.value;
   if(!pid){ if(statusEl) statusEl.textContent=''; return; }
   const name = sel.selectedOptions[0]?.text || '';
-  if(statusEl) statusEl.textContent = `✓ Selected: ${name} — components will load on Step 5`;
   selectEntry('manual');
-  // Pre-clear compRows so they reload from this new selection
   S.compRows = [];
 
-  // Pre-fill Identity (Step 3) from the cloned base product so Step 4's
-  // size master can detect SFG/BOX/AS context without retyping the name.
   const prod = S.flat.find(p=>String(p.id)===String(pid));
   if(prod){
     document.getElementById('w-pname').value = prod.name;
     document.getElementById('w-whcode').value = prod.brand==='SFG' ? 'CBESFG' : 'CBEFG';
     updatePSDescPreview();
     smRefreshContext();
+
+    // Surface available colours from the source macro file so the user can
+    // easily pick the right ones in Step 4's size matrix.
+    const srcColours = Array.isArray(prod.colours) ? prod.colours : [];
+    if(srcColours.length){
+      populateColourDatalist(srcColours);
+      // Pre-fill the single-row colour input with the first colour from the source
+      const clrInp = document.getElementById('sm-clr');
+      if(clrInp && !clrInp.value) clrInp.value = srcColours[0];
+      const bulkClr = document.getElementById('sm-bulk-clr');
+      if(bulkClr && !bulkClr.value) bulkClr.value = srcColours[0];
+      if(statusEl) statusEl.innerHTML =
+        `✓ <b>${name}</b> — components load on Step 5 &nbsp;|&nbsp; `+
+        `Colours in source: ${srcColours.map(c=>`<b>${c}</b>`).join(', ')}`;
+    } else {
+      populateColourDatalist();
+      if(statusEl) statusEl.textContent = `✓ Selected: ${name} — components will load on Step 5`;
+    }
   }
 }
 
@@ -5576,12 +5607,19 @@ function smAddSelected(){
   toast(`Added ${added} size${added!==1?'s':''} to matrix`,'ok');
 }
 
-function populateColourDatalist(){
-  // Collect all unique colours from loaded products + common defaults
+function populateColourDatalist(priorityColours){
+  // Collect all unique colours from loaded products + common defaults.
+  // p.colours is already an array (API returns parsed JSON) — do NOT JSON.parse it again.
   const common = ['NL','BL','BG','PK','GR','OR','MR','WH','RD','BK','YL','GD','SL','BN','TL','NV','PR'];
   const fromProducts = new Set();
-  (S.flat||[]).forEach(p=>{ if(p.colours) try{ JSON.parse(p.colours).forEach(c=>fromProducts.add(c)); }catch(e){} });
-  const all = [...new Set([...common,...fromProducts])].sort();
+  (S.flat||[]).forEach(p=>{
+    const clrs = Array.isArray(p.colours) ? p.colours : [];
+    clrs.forEach(c=>fromProducts.add(c));
+  });
+  // Priority colours (from cloned/source product) go first so they appear at top of the list
+  const priority = priorityColours && priorityColours.length ? priorityColours : [];
+  const rest = [...new Set([...common,...fromProducts])].filter(c=>!priority.includes(c)).sort();
+  const all = [...priority, ...rest];
   const dl = document.getElementById('sm-clr-list');
   if(!dl) return;
   dl.innerHTML = all.map(c=>`<option value="${c}">`).join('');
@@ -6354,6 +6392,11 @@ async function refreshBellCount(){
       if(unread.length){
         const first = unread[0];
         toast(first.message, (first.notif_type === 'approved' || first.notif_type === 'admin_audit') ? 'ok' : 'err');
+        // If a Global Replace approval arrived, invalidate all cached BOM data
+        // so the BOM Viewer re-fetches fresh data from the updated files.
+        if(first.notif_type === 'approved' && first.message.includes('Global Replace')){
+          S.flat.forEach(p=>{ p._bomLoaded=false; });
+        }
         fetch('/api/notifications/read',{method:'POST'});
       }
     }
@@ -6398,14 +6441,20 @@ async function loadBellList(){
       const dt   = (a.created_at||'').replace('T',' ').slice(0,16);
       const tCls = TYPE_CLS[a.action_type] || 'btype-approval';
       const tLbl = TYPE_LABEL[a.action_type] || a.action_type;
+      // For regular users: "Pending" → show which stage it's waiting at.
+      // All new requests go to Sub-Admin first; after Sub-Admin acts the
+      // user receives an 'approved'/'rejected' notification immediately.
+      const pendingLabel = isReviewer
+        ? '⏳ Pending'
+        : '⏳ Awaiting Sub-Admin Approval';
       const statusHtml = a.status === 'pending'
         ? (a.needs_admin_audit
             ? '<span class="bell-status-pending">🔍 Needs your audit</span>'
-            : '<span class="bell-status-pending">⏳ Pending</span>')
+            : `<span class="bell-status-pending">${pendingLabel}</span>`)
         : a.status === 'approved'
         ? (a.needs_admin_audit
             ? `<span class="bell-status-pending">🔍 Approved by Sub-Admin ${a.reviewer_name||''} — needs your audit</span>`
-            : '<span class="bell-status-approved">✓ Approved</span>')
+            : '<span class="bell-status-approved">✓ Approved &amp; Executed — Pending Upload to RAMCO</span>')
         : a.status === 'overturned'
         ? `<span class="bell-status-rejected">↩ Overturned by ${a.admin_reviewer_name||'Admin'}</span>`
         : `<span class="bell-status-rejected">✗ Rejected${a.reviewer_name ? ' by '+a.reviewer_name : ''}</span>`;

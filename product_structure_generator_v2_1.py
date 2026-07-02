@@ -326,8 +326,21 @@ class ProductStructureGenerator:
                 })
             output_rows.append(row_dict)
 
-        # Sort by PS No so all rows for the same mattress code are grouped together
-        output_rows.sort(key=lambda r: (r['rec_no'], r['ps_seq']))
+        # Sort by PS No so all rows for the same mattress code are grouped together.
+        # ps_seq may arrive as a string from the bom_engine (REF sheet values are
+        # returned via _get() which always returns str). String ordering breaks for
+        # multi-digit sequences ("100" < "20"), so coerce to float for the key.
+        def _seq_num(v):
+            try: return float(v)
+            except (TypeError, ValueError): return 0.0
+
+        output_rows.sort(key=lambda r: (r['rec_no'], _seq_num(r.get('ps_seq', 0))))
+
+        # Normalise ps_seq to int so Excel receives a number, not a string.
+        for r in output_rows:
+            try: r['ps_seq'] = int(float(r['ps_seq']))
+            except (TypeError, ValueError): pass
+
         return output_rows
 
     # kept for backward compat — no longer used internally

@@ -3056,6 +3056,11 @@ def api_replace_execute():
                     ic_col = 5
                 cell = ws.cell(row=row_idx, column=ic_col)
                 old_ic = str(cell.value or '').strip().upper()
+                # Preview used data_only=True; here we open data_only=False so formula
+                # cells show "=..." strings instead of cached values. Fall back to the
+                # old_ic captured during the preview scan for formula-backed cells.
+                if old_ic.startswith('='):
+                    old_ic = str(row_info.get('old_ic', '')).strip().upper()
                 # For foam bulk replace: generate per-row new code from pattern
                 if foam_pat:
                     row_new_code = _gen_foam_code(old_ic, foam_pat) or new_code
@@ -4649,7 +4654,16 @@ def api_approve(appr_id):
                         else:
                             ic_col = 5
                         cell = ws.cell(row=row_idx, column=ic_col)
-                        if str(cell.value or '').strip().upper() == adata['old_code']:
+                        cell_raw = str(cell.value or '').strip().upper()
+                        # Preview used data_only=True (reads formula cached values).
+                        # Here we open data_only=False (default — preserves formulas).
+                        # For formula cells the raw value is "=..." which won't match
+                        # old_code, so fall back to row_info['old_ic'] as the verified
+                        # match (it was the cached value seen by the preview scan).
+                        if cell_raw == adata['old_code'] or (
+                            cell_raw.startswith('=') and
+                            str(row_info.get('old_ic', '')).strip().upper() == adata['old_code']
+                        ):
                             ws.cell(row=row_idx, column=ic_col, value=adata['new_code'])
                             if adata.get('new_qty') is not None:
                                 qty_col = 4 if ws_name == 'components' else 6

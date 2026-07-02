@@ -60,7 +60,14 @@
       "Bash(node test_ui_approval.js)",
       "Bash(./.venv/Scripts/python.exe -m pip install pyodbc)",
       "Bash(./.venv/Scripts/python.exe -c \"import importlib.metadata as m; print\\(m.version\\('pyodbc'\\)\\)\")",
-      "Bash(node test_sql_log.js)"
+      "Bash(node test_sql_log.js)",
+      "Bash(git config *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git push *)",
+      "Bash(gh auth *)",
+      "PowerShell(Stop-Process -Id 16740 -Force)"
     ]
   }
 }
