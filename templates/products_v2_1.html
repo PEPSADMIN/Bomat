@@ -1691,7 +1691,7 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
           </div>
           <div class="flex gap-2 mt-3">
             <button class="btn btn-ghost" onclick="goWStep(1)">← Back</button>
-            <button class="btn btn-primary" onclick="goWStep(3)" id="ep-next-btn">Next →</button>
+            <button class="btn btn-primary" onclick="epNextFromStep2()" id="ep-next-btn">Next →</button>
           </div>
         </div>
 
@@ -5155,6 +5155,16 @@ async function goWStep(n){
     const cloneId  = cloneSel?.value;
     if(cloneId){
       await _loadCloneComponents(parseInt(cloneId));
+    } else if(S.parsedSpec && !S.parsedSpec.exists){
+      // User uploaded a spec but navigated past "Continue as New →" — load components now
+      const _fsku = S.parsedSpec.skus[0]||'';
+      const _fc   = S.parsedSpec.bom_by_sku[_fsku]||Object.values(S.parsedSpec.bom_by_sku)[0]||[];
+      S.compRows  = _fc.map(c=>({code:c.code||'',desc:c.desc||'',qty:(+c.qty||0).toFixed(4),uom:c.uom||'NOS',wh:c.wh||'',status:'ok'}));
+      renderCompRows();
+      if(S.compRows.length) toast(`✓ ${S.compRows.length} components loaded from uploaded file`,'ok');
+      else toast('No components in uploaded spec — add rows manually below','warn');
+    } else {
+      toast('No components loaded — add rows manually below or go back to Step 2 and select a base product','warn');
     }
   }
 
@@ -5300,41 +5310,79 @@ function loadParsedIntoViewer(d){
   }
 }
 
+// Extract colour + L/W/H from a mattress SKU like PEPSBNCOMNLBG72X30X06.
+// Two-step: (1) find the dimension block, (2) read the last 2 letters before it.
+// Single-regex greedy capture of ([A-Z]{2,4}) is wrong for long prefixes — it
+// grabs "NLBG" instead of "BG" because it matches leftmost (PEPSBNCOMNL|BG|…).
+function _parseSkuParts(sku){
+  const dimM = sku.match(/(\d{2,3})[Xx](\d{2,3})[Xx](\d{1,2})/i);
+  if(!dimM) return null;
+  const pre  = sku.slice(0, dimM.index);
+  const clrM = pre.match(/([A-Z]{2})$/i);  // last 2 letters = colour code
+  return {c: clrM ? clrM[1].toUpperCase() : '', l: dimM[1], w: dimM[2], h: dimM[3]};
+}
+
 function applyParsedToWizard(d){
   // Pre-populate wizard Steps 3-5 from parsed spec
   const p=d.product_name;
   document.getElementById('w-pname').value=p;
 
-  // Guess prefix from first SKU: everything before first digit sequence
+  // Guess prefix from first SKU: everything before colour+dimensions.
+  // Use _parseSkuParts so we strip the colour too (e.g. PEPSBNCOMNLBG → PEPSBNCOMNL).
   const firstSku=d.skus[0]||'';
-  const prefixM=firstSku.match(/^([A-Z0-9-]+?)(\d{2,3}[Xx]\d{2,3}[Xx]\d{2,3})/);
+  const _fp=_parseSkuParts(firstSku);
+  const prefixM=_fp
+    ? firstSku.match(new RegExp('^([A-Z0-9-]+?)'+_fp.c+'\\d'))
+    : firstSku.match(/^([A-Z0-9-]+?)(\d{2,3}[Xx]\d{2,3}[Xx]\d{2,3})/);
   if(prefixM) document.getElementById('w-prefix').value=prefixM[1];
   updatePSDescPreview();
 
-  // Build size rows from SKUs
+  // Build size rows from SKUs — include colour in dedup key so a 4-colour product
+  // (300 SKUs = 75 L×W×H × 4 colours) produces 300 rows, not 75.
   S.sizeRows=[];
   const seenSizes=new Set();
   d.skus.forEach(sku=>{
-    const m=sku.match(/([A-Z]{2,4})?(\d{2,3})[Xx](\d{2,3})[Xx](\d{1,2})/i);
-    if(m){
-      const key=`${m[2]}X${m[3]}X${m[4]}`;
+    const p=_parseSkuParts(sku);
+    if(p){
+      const key=`${p.c}|${p.l}X${p.w}X${p.h}`;
       if(!seenSizes.has(key)){
         seenSizes.add(key);
-        S.sizeRows.push({l:m[2],w:m[3],h:m[4],c:m[1]||'',cn:COLOUR_MAP[m[1]||'']||m[1]||''});
+        // _sku stores the original key so generateNewProduct can do a direct
+        // bom_by_sku lookup without error-prone string reconstruction.
+        S.sizeRows.push({l:p.l,w:p.w,h:p.h,c:p.c,cn:COLOUR_MAP[p.c]||p.c,_sku:sku});
       }
     }
   });
   renderSizeRows();
 
-  // Components from first SKU
-  const firstComps=d.bom_by_sku[firstSku]||[];
+  // Components from first SKU — use fallback to first value in bom_by_sku in case
+  // the exact key lookup fails (e.g. trailing whitespace in source Excel cell).
+  const firstComps=d.bom_by_sku[firstSku]||Object.values(d.bom_by_sku)[0]||[];
   S.compRows=firstComps.map(c=>({
-    code:c.code, desc:c.desc, qty:c.qty.toFixed(4), uom:c.uom, wh:c.wh, status:'ok'
+    code:c.code||'', desc:c.desc||'', qty:(+c.qty||0).toFixed(4), uom:c.uom||'NOS', wh:c.wh||'', status:'ok'
   }));
   renderCompRows();
 
+  // Surface colours from the parsed SKUs so Step 4 datalist is pre-populated.
+  const parsedColours=[];
+  d.skus.forEach(sku=>{
+    const sp=_parseSkuParts(sku);
+    if(sp && sp.c && !parsedColours.includes(sp.c)) parsedColours.push(sp.c);
+  });
+  if(parsedColours.length) populateColourDatalist(parsedColours);
+
   goWStep(3);
-  toast('Wizard pre-populated from '+d.file_type.toUpperCase()+' file','ok');
+  toast(`Wizard pre-populated from ${d.file_type.toUpperCase()} file — ${S.compRows.length} components, ${S.sizeRows.length} size rows`,'ok');
+}
+
+function epNextFromStep2(){
+  // If user uploaded and parsed a new-product spec, apply it to the wizard
+  // (avoids confusion where the static "Next →" button skips applyParsedToWizard).
+  if(S.entryType==='upload' && S.parsedSpec && !S.parsedSpec.exists){
+    applyParsedToWizard(S.parsedSpec);
+  } else {
+    goWStep(3);
+  }
 }
 function cloneSrcChanged(){
   const sel = document.getElementById('ep-clone-src');
@@ -5710,11 +5758,42 @@ async function generateNewProduct(){
   const btn=document.querySelector('#wp-7 .btn-primary');
   if(btn){btn.disabled=true;btn.textContent='Generating…';}
   try{
+    // Attach per-SKU components to each size row so the server uses the correct
+    // quantities for every L×W×H×Colour combination instead of repeating the
+    // first SKU's quantities for all sizes.
+    const sizesPayload = S.sizeRows.map(row=>{
+      if(!S.parsedSpec || !S.parsedSpec.bom_by_sku) return {...row};
+      // Primary: direct lookup via the SKU key stored by applyParsedToWizard.
+      let perSku = row._sku ? S.parsedSpec.bom_by_sku[row._sku] : null;
+      // Fallback: match by colour + L×W×H when _sku is absent (sizes added via
+      // size master). parseInt normalises "06" vs "6" height values.
+      if(!perSku){
+        const hit = (S.parsedSpec.skus||[]).find(s=>{
+          const sp = _parseSkuParts(s);
+          if(!sp) return false;
+          return sp.c === String(row.c||'').toUpperCase()
+              && sp.l === String(row.l)
+              && sp.w === String(row.w)
+              && parseInt(sp.h) === parseInt(row.h);
+        });
+        perSku = hit ? S.parsedSpec.bom_by_sku[hit] : null;
+      }
+      return perSku ? {...row, spec_comps: perSku} : {...row};
+    });
+    // Diagnostic: count how many sizes got per-SKU components attached
+    const _withSpec = sizesPayload.filter(r=>r.spec_comps).length;
+    console.log(`[BOM] sizesPayload: ${sizesPayload.length} sizes, ${_withSpec} with spec_comps`);
+    if(S.parsedSpec) console.log(`[BOM] parsedSpec has ${Object.keys(S.parsedSpec.bom_by_sku||{}).length} SKUs, first key:`, Object.keys(S.parsedSpec.bom_by_sku||{})[0]);
+    if(S.sizeRows[0]) console.log(`[BOM] first sizeRow:`, JSON.stringify(S.sizeRows[0]));
+    if(_withSpec === 0 && S.parsedSpec){
+      toast(`Warning: 0/${sizesPayload.length} sizes matched spec — check browser console (F12) for details`,'warn');
+    }
+
     const res=await fetch('/api/newproduct/generate',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({product_name,prefix,wh_code,ps_desc,approval_ref,run_by,
-        sizes:S.sizeRows,components:S.compRows})
+        sizes:sizesPayload,components:S.compRows})
     });
     const d=await res.json();
     if(d.error){toast('Error: '+d.error,'err');return;}

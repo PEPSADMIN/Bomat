@@ -1,6 +1,6 @@
 """
 PEPS BOM Tool - User Guide PDF Generator
-Run: C:\Python314\python.exe generate_user_guide.py
+Run: C:\\Python314\\python.exe generate_user_guide.py
 """
 
 from reportlab.lib.pagesizes import A4
@@ -222,7 +222,7 @@ def field_table(rows):
     return t
 
 def hr():
-    return HRFlowable(width='100%', thickness=0.5, color=LINE,
+    return HRFlowable(width='100%', thickness=0.5, color=LINE,  # type: ignore[reportArgumentType]
                       spaceAfter=8, spaceBefore=4)
 
 def sp(h=6):

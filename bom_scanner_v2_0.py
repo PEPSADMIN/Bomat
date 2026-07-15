@@ -128,7 +128,7 @@ class BOMScanner:
             for file in files:
                 if file.startswith('~$'):
                     continue
-                if any(file.endswith(ext) for ext in self.valid_extensions):
+                if any(file.lower().endswith(ext.lower()) for ext in self.valid_extensions):
                     full_path = os.path.join(root, file)
                     if full_path not in seen_paths:
                         seen_paths.add(full_path)
@@ -214,17 +214,88 @@ class BOMScanner:
             'errors': errors
         }
     
+    def _extract_metadata_flat_xlsx(self, filepath: str, wb) -> Dict:
+        """Read flat SFG xlsx files (Bom Code/PS.No | Issue Item | Qty … format)."""
+        filename     = os.path.basename(filepath)
+        product_name = os.path.splitext(filename)[0]
+        rel_parts    = os.path.relpath(filepath, self.bom_files_root).split(os.sep)
+        category     = rel_parts[0] if len(rel_parts) > 1 else 'SFG'
+        family       = rel_parts[1] if len(rel_parts) > 2 else product_name
+        product_group= rel_parts[2] if len(rel_parts) > 3 else ''
+
+        # Use first non-RULES sheet
+        data_sheet = next((s for s in wb.sheetnames if s.upper() != 'RULES'), None)
+        if not data_sheet:
+            return {'name': product_name, 'family': family, 'product_group': product_group,
+                    'category': category, 'heights': [], 'lengths': [], 'widths': [],
+                    'colours': [], 'departments': [], 'sections': [], 'wh_codes': [],
+                    'item_codes': [], 'sku_count': 0, 'component_count': 0, 'status': 'err'}
+
+        ws  = wb[data_sheet]
+        hdr = [str(c or '').strip() for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+        col = {h: i for i, h in enumerate(hdr)}
+
+        if 'Bom Code/PS.No' not in col:
+            raise ValueError(
+                f"Not a flat SFG BOM file — missing 'Bom Code/PS.No' header "
+                f"(found: {hdr[:5]})"
+            )
+
+        ps_idx    = col.get('Bom Code/PS.No', 0)
+        wh_idx    = col.get('Wh Code', 3)
+        issue_idx = col.get('Issue Item', 5)
+        clr_idx   = col.get('Colour', 10)
+        acct_idx  = col.get('Account Group', 9)
+        stdwh_idx = col.get('Std Wh Code', 11)
+
+        seen_ps, item_codes, wh_codes, colours, departments = set(), set(), set(), set(), set()
+        component_count = 0
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            ps = str(row[ps_idx] or '').strip() if ps_idx < len(row) else ''
+            if not ps:
+                continue
+            seen_ps.add(ps)
+            component_count += 1
+            if issue_idx < len(row) and row[issue_idx]:
+                item_codes.add(str(row[issue_idx]).strip())
+            if wh_idx < len(row) and row[wh_idx]:
+                wh_codes.add(str(row[wh_idx]).strip())
+            if stdwh_idx < len(row) and row[stdwh_idx]:
+                wh_codes.add(str(row[stdwh_idx]).strip())
+            if clr_idx < len(row) and row[clr_idx]:
+                colours.add(str(row[clr_idx]).strip())
+            if acct_idx < len(row) and row[acct_idx]:
+                departments.add(str(row[acct_idx]).strip())
+
+        sku_count = len(seen_ps)
+        status    = 'ok' if sku_count > 0 else 'err'
+        return {
+            'name': product_name, 'family': family, 'product_group': product_group,
+            'category': category, 'heights': [], 'lengths': [], 'widths': [],
+            'colours': sorted(colours), 'departments': sorted(departments), 'sections': [],
+            'wh_codes': sorted(wh_codes), 'item_codes': sorted(item_codes),
+            'sku_count': sku_count, 'component_count': component_count, 'status': status,
+        }
+
     def extract_metadata(self, filepath: str) -> Dict:
         """
         Extract metadata from a single xlsm file.
-        
+
         Args:
             filepath: Path to xlsm file
-        
+
         Returns:
             Dict with product metadata
         """
         wb = load_workbook(filepath, read_only=True, data_only=True)
+
+        # Flat xlsx SFG files (Bom Code/PS.No format) — no REF/DATA sheets
+        if filepath.lower().endswith('.xlsx') and \
+                'REF' not in wb.sheetnames and 'DATA' not in wb.sheetnames:
+            result = self._extract_metadata_flat_xlsx(filepath, wb)
+            wb.close()
+            return result
         
         # Extract product name from filename
         filename = os.path.basename(filepath)

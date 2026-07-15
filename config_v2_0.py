@@ -133,7 +133,7 @@ LOG_FILE = os.path.join(os.path.dirname(__file__), 'bom_tool.log')
 # FILE SCANNING CONFIGURATION
 # ============================================================================
 # File extensions to scan
-VALID_EXTENSIONS = ['.xlsm']
+VALID_EXTENSIONS = ['.xlsm', '.xlsx']
 
 # Maximum file size to process (in MB)
 MAX_FILE_SIZE_MB = 50

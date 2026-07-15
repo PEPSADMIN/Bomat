@@ -30,6 +30,63 @@ class BOMEngine:
     # XLSM FILE READING
     # ========================================================================
     
+    def _read_flat_xlsx_bom(self, filepath: str, wb) -> List[Dict]:
+        """Read flat SFG xlsx (Bom Code/PS.No | Issue Item | Qty …) as prebuilt_rows."""
+        data_sheet = next((s for s in wb.sheetnames if s.upper() != 'RULES'), None)
+        if not data_sheet:
+            return []
+        ws  = wb[data_sheet]
+        hdr = [str(c or '').strip()
+               for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+        col = {h: i for i, h in enumerate(hdr)}
+
+        if 'Bom Code/PS.No' not in col:
+            return []
+
+        ps_idx    = col['Bom Code/PS.No']
+        seq_idx   = col.get('PS Seq')
+        desc_idx  = col.get('PS Desc.')
+        wh_idx    = col.get('Wh Code')
+        issue_idx = col.get('Issue Item')
+        idesc_idx = col.get('Item Desc')
+        uom_idx   = col.get('Uom')
+        qty_idx   = col.get('Qty')
+        acct_idx  = col.get('Account Group')
+        clr_idx   = col.get('Colour')
+        stdwh_idx = col.get('Std Wh Code')
+
+        def _val(row, idx, default=''):
+            if idx is not None and idx < len(row) and row[idx] is not None:
+                return str(row[idx]).strip()
+            return default
+
+        rows = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            ps = _val(row, ps_idx)
+            if not ps:
+                continue
+            item = _val(row, issue_idx)
+            if not item:
+                continue
+            try:
+                qty = float(_val(row, qty_idx, '0') or 0)
+            except (ValueError, TypeError):
+                qty = 0.0
+            wh = _val(row, wh_idx) or _val(row, stdwh_idx)
+            rows.append({
+                'ps_no':       ps,
+                'ps_seq':      _val(row, seq_idx),
+                'ps_desc':     _val(row, desc_idx),
+                'item_code':   item,
+                'description': _val(row, idesc_idx),
+                'qty':         qty,
+                'uom':         _val(row, uom_idx),
+                'wh_code':     wh,
+                'department':  _val(row, acct_idx),
+                'section':     _val(row, clr_idx),
+            })
+        return rows
+
     def read_bom_file(self, filepath: str) -> Tuple[List[Dict], List[List], List[str], List[Dict]]:
         """
         Read BOM xlsm file and extract components and permutations.
@@ -48,7 +105,14 @@ class BOMEngine:
         """
         try:
             wb = load_workbook(filepath, read_only=True, data_only=False)
-            
+
+            # Flat SFG xlsx files (Bom Code/PS.No format) — no REF/DATA sheets
+            if (filepath.lower().endswith('.xlsx') and
+                    'REF' not in wb.sheetnames and 'DATA' not in wb.sheetnames):
+                flat_rows = self._read_flat_xlsx_bom(filepath, wb)
+                wb.close()
+                return [], [], [], flat_rows
+
             # Read DATA sheet for component rules
             if 'DATA' not in wb.sheetnames:
                 raise ValueError(f"DATA sheet not found in {filepath}")
@@ -399,17 +463,25 @@ class BOMEngine:
                 ps_desc_auto = ps_desc_auto.replace('W', str(W))
                 ps_desc_auto = ps_desc_auto.replace('H', H_str)
 
-            # Generate component rows — ps_seq in multiples of 10 (10, 20, 30 …)
-            for idx, comp in enumerate(components, start=1):
+            # Use per-SKU components from the macro file when available (they carry
+            # the correct quantity for this specific L×W×H×Colour combination).
+            # Fall back to the generic wizard component list when not present.
+            spec_comps = size.get('spec_comps')
+            comps_for_size = spec_comps if spec_comps else components
+
+            # Generate component rows — ps_seq from REF sheet seq when available,
+            # otherwise multiples of 10 (10, 20, 30 …)
+            for idx, comp in enumerate(comps_for_size, start=1):
+                ps_seq = int(comp.get('seq', idx * 10)) if spec_comps else idx * 10
                 row = {
                     'ps_no': parent_code,
                     'ps_desc': ps_desc_auto,
-                    'ps_seq': idx * 10,
-                    'item_code': comp['code'],
+                    'ps_seq': ps_seq,
+                    'item_code': comp.get('code', ''),
                     'description': comp.get('desc', ''),
-                    'qty': float(comp['qty']),
-                    'uom': comp['uom'],
-                    'wh_code': comp['wh'],
+                    'qty': float(comp.get('qty', 0)),
+                    'uom': comp.get('uom', 'NOS'),
+                    'wh_code': comp.get('wh', ''),
                     'parent_wh_code': wh_code,
                     'L': L,
                     'W': W,

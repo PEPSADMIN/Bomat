@@ -38,7 +38,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.cell.cell import Cell
 from typing import cast
+
+def _cell(ws: Worksheet, ref: str) -> Cell:
+    """ws[ref] narrowed to a single Cell (openpyxl's __getitem__ is typed as a union of Cell/tuple)."""
+    return cast(Cell, ws[ref])
 
 import config_v2_0 as config
 from database_v2_1 import db
@@ -55,6 +60,56 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'peps-bom-tool-2026-secret-key'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 app.config['TEMPLATES_AUTO_RELOAD'] = True          # always serve latest HTML on each request
+
+# Server-side cache: last parsed macro spec per session.
+# Keyed by a UUID stored in the Flask session cookie.
+# Allows api_newproduct_generate to attach per-SKU spec_comps even when old
+# browser JS didn't include them in the payload.
+_parsed_spec_cache: dict = {}
+
+# Persistent disk cache for parsed specs — survives server restarts.
+# Keyed by sanitised product name so generate can find it without a live session.
+_SPEC_CACHE_DIR = os.path.join(os.path.dirname(__file__), 'spec_cache')
+os.makedirs(_SPEC_CACHE_DIR, exist_ok=True)
+
+def _spec_cache_path(product_name: str) -> str:
+    import re as _re
+    safe = _re.sub(r'[^\w\-]', '_', product_name)[:120]
+    return os.path.join(_SPEC_CACHE_DIR, f'{safe}.json')
+
+def _save_spec_to_disk(product_name: str, result: dict) -> None:
+    import json as _json
+    try:
+        with open(_spec_cache_path(product_name), 'w', encoding='utf-8') as _f:
+            _json.dump({'product_name': product_name, 'bom_by_sku': result.get('bom_by_sku', {}),
+                        'skus': result.get('skus', [])}, _f)
+    except Exception:
+        pass
+
+def _load_spec_from_disk(product_name: str) -> dict | None:
+    import json as _json
+    path = _spec_cache_path(product_name)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding='utf-8') as _f:
+            return _json.load(_f)
+    except Exception:
+        return None
+
+def _sku_parts(sku: str) -> dict | None:
+    """Extract colour + dimensions from a mattress SKU.
+    Two-step: find dimension block first, then read the last 2 letters before it.
+    E.g. 'PEPSBNCOMNLBG72X30X06' -> {'c':'BG','l':'72','w':'30','h':'06'}
+    """
+    import re as _re
+    dim = _re.search(r'(\d{2,3})[Xx](\d{2,3})[Xx](\d{1,2})', sku)
+    if not dim:
+        return None
+    pre  = sku[:dim.start()]
+    clr  = _re.search(r'([A-Z]{2})$', pre, _re.I)
+    return {'c': clr.group(1).upper() if clr else '',
+            'l': dim.group(1), 'w': dim.group(2), 'h': dim.group(3)}
 
 # Global constants
 OUTPUT_FOLDER = config.OUTPUT_FOLDER
@@ -299,11 +354,12 @@ def _export_unmatched_to_excel(unmatched_codes: list, code_products: dict):
     wb = Workbook()
     ws = wb.active
     assert ws is not None
+    ws = cast(Worksheet, ws)
     ws.title = 'Unmatched Item Codes'
 
     # ── Header ────────────────────────────────────────────────────────────
     hdr_font  = Font(bold=True, color='FFFFFF')
-    hdr_fill  = PatternFill('solid', fgColor='1A237E')
+    hdr_fill  = PatternFill('solid', fgColor='1A237E')  # type: ignore[reportArgumentType]
     hdr_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
     headers = ['#', 'Item Code', 'Status', 'Used In (Products)', 'Product Count']
@@ -319,7 +375,7 @@ def _export_unmatched_to_excel(unmatched_codes: list, code_products: dict):
     ws.row_dimensions[1].height = 22
 
     # ── Data rows ─────────────────────────────────────────────────────────
-    red_fill    = PatternFill('solid', fgColor='FFEBEE')
+    red_fill    = PatternFill('solid', fgColor='FFEBEE')  # type: ignore[reportArgumentType]
     center_aln  = Alignment(horizontal='center', vertical='top')
     wrap_aln    = Alignment(vertical='top', wrap_text=True)
     mono_font   = Font(name='Courier New', size=10)
@@ -573,8 +629,9 @@ def _generate_excel_report(product_name: str, bom_rows: list) -> bytes:
     wb = Workbook()
     ws = wb.active
     assert ws is not None
+    ws = cast(Worksheet, ws)
     ws.title = 'BOM Report'
-    hdr_fill = PatternFill('solid', fgColor='1A56DB')
+    hdr_fill = PatternFill('solid', fgColor='1A56DB')  # type: ignore[reportArgumentType]
     hdr_font = Font(bold=True, color='FFFFFF', size=10)
     thin = Side(style='thin', color='CCCCCC')
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -1538,7 +1595,7 @@ def api_item_formula():
         try:
             wb = load_workbook(p['filepath'], read_only=True, data_only=True)
             if 'REF' in wb.sheetnames:
-                ws = wb['REF']
+                ws = cast(Worksheet, wb['REF'])
                 hdr = [str(c or '').strip().upper()
                        for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
                 mc_idx  = next((i for i,h in enumerate(hdr) if h in ('MATTRESS CODE','PS CODE','PARENT CODE')), None)
@@ -1753,7 +1810,7 @@ def _api_formula_guide_inner():
             try:
                 wb_tmp = load_workbook(p['filepath'], read_only=True, data_only=True)
                 if 'REF' in wb_tmp.sheetnames:
-                    ws_tmp = wb_tmp['REF']
+                    ws_tmp = cast(Worksheet, wb_tmp['REF'])
                     hdr = [str(c or '').strip().upper()
                            for c in next(ws_tmp.iter_rows(min_row=1, max_row=1, values_only=True))]
                     ic_idx  = next((i for i,h in enumerate(hdr) if h in ('ITEMCODE','ITEM CODE')), 3)
@@ -1792,7 +1849,7 @@ def _api_formula_guide_inner():
         return Font(bold=bold, size=size, color=color, italic=italic, name=name)
     def mono(bold=True, size=11, color='1D4ED8'):
         return Font(bold=bold, size=size, color=color, name='Courier New')
-    def fill(c): return PatternFill('solid', fgColor=c)
+    def fill(c): return PatternFill('solid', fgColor=c)  # type: ignore[reportArgumentType]
     def border(style='thin', color='CCCCCC'):
         s = Side(style=style, color=color)  # type: ignore[arg-type]
         return Border(left=s, right=s, top=s, bottom=s)
@@ -1818,21 +1875,21 @@ def _api_formula_guide_inner():
 
     def title(ws, row, text, bg=NAV, height=36, cols='A:H'):
         ws.merge_cells(f'A{row}:{cols[-1]}{row}')
-        c = ws[f'A{row}']
+        c = _cell(ws, f'A{row}')
         c.value = text; c.font = hfont(size=14, color=WHT)
         c.fill = fill(bg); c.alignment = wrap('center')
         ws.row_dimensions[row].height = height
 
     def section(ws, row, text, bg=ACC, height=22, cols='A:H'):
         ws.merge_cells(f'A{row}:{cols[-1]}{row}')
-        c = ws[f'A{row}']
+        c = _cell(ws, f'A{row}')
         c.value = text; c.font = hfont(size=11, color=WHT)
         c.fill = fill(bg); c.alignment = wrap()
         ws.row_dimensions[row].height = height
 
     def note(ws, row, text, bg=AMB_L, color=AMB, height=28, cols='A:H'):
         ws.merge_cells(f'A{row}:{cols[-1]}{row}')
-        c = ws[f'A{row}']
+        c = _cell(ws, f'A{row}')
         c.value = text; c.font = hfont(size=10, color=color, bold=False, italic=True)
         c.fill = fill(bg); c.alignment = wrap()
         ws.row_dimensions[row].height = height
@@ -1842,6 +1899,7 @@ def _api_formula_guide_inner():
     # ═══════════════════════════════════════════════════════════
     ws1 = wb.active
     assert ws1 is not None
+    ws1 = cast(Worksheet, ws1)
     ws1.title = '1. How It Works'
     ws1.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',30),('C',55),('D',28)]:
@@ -1849,9 +1907,9 @@ def _api_formula_guide_inner():
 
     title(ws1, 1, 'Q.ty Formula Calculator — How It Works  (PEPS BOM Tool)', cols='A:D')
     ws1.merge_cells('A2:D2')
-    ws1['A2'].value = 'Instead of manually changing Q.ty in 75+ sizes one by one, enter a formula once and the tool calculates every size automatically.'
-    ws1['A2'].font  = hfont(bold=False, size=11, italic=True, color='475569')
-    ws1['A2'].fill  = fill(BLU_L); ws1['A2'].alignment = wrap()
+    _cell(ws1, 'A2').value = 'Instead of manually changing Q.ty in 75+ sizes one by one, enter a formula once and the tool calculates every size automatically.'
+    _cell(ws1, 'A2').font  = hfont(bold=False, size=11, italic=True, color='475569')
+    _cell(ws1, 'A2').fill  = fill(BLU_L); _cell(ws1, 'A2').alignment = wrap()
     ws1.row_dimensions[2].height = 28
 
     section(ws1, 4, 'STEP-BY-STEP WORKFLOW', cols='A:D')
@@ -1894,7 +1952,7 @@ def _api_formula_guide_inner():
     # ═══════════════════════════════════════════════════════════
     # SHEET 2 — FORMULA RULES  (variables, syntax, patterns)
     # ═══════════════════════════════════════════════════════════
-    ws2 = wb.create_sheet('2. Formula Rules')
+    ws2 = cast(Worksheet, wb.create_sheet('2. Formula Rules'))
     ws2.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',20),('C',18),('D',14),('E',14),('F',35)]:
         ws2.column_dimensions[col].width = w
@@ -1968,16 +2026,16 @@ def _api_formula_guide_inner():
     # ═══════════════════════════════════════════════════════════
     # SHEET 3 — REAL FORMULAS FROM PEPS BOM FILES (verified)
     # ═══════════════════════════════════════════════════════════
-    ws3 = wb.create_sheet('3. Real Formulas (Verified)')
+    ws3 = cast(Worksheet, wb.create_sheet('3. Real Formulas (Verified)'))
     ws3.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',20),('C',38),('D',14),('E',14),('F',14),('G',14),('H',22)]:
         ws3.column_dimensions[col].width = w
 
     title(ws3, 1, 'Real Formulas from PEPS BOM Files — Verified Against Actual REF Sheet Values', cols='A:H')
     ws3.merge_cells('A2:H2')
-    ws3['A2'].value = 'These formulas were derived from actual xlsm files using the "Load Formula" feature. Values are verified to match the REF sheet exactly.'
-    ws3['A2'].font  = hfont(bold=False, size=10, italic=True, color='475569')
-    ws3['A2'].fill  = fill(BLU_L); ws3['A2'].alignment = wrap()
+    _cell(ws3, 'A2').value = 'These formulas were derived from actual xlsm files using the "Load Formula" feature. Values are verified to match the REF sheet exactly.'
+    _cell(ws3, 'A2').font  = hfont(bold=False, size=10, italic=True, color='475569')
+    _cell(ws3, 'A2').fill  = fill(BLU_L); _cell(ws3, 'A2').alignment = wrap()
     ws3.row_dimensions[2].height = 24
 
     sec3_title = (f'FORMULA FOR:  {dyn_code}  —  {dyn_desc}' if dyn_code
@@ -2056,7 +2114,7 @@ def _api_formula_guide_inner():
     # ═══════════════════════════════════════════════════════════
     # SHEET 4 — HOW k IS CALCULATED  (derivation with real data)
     # ═══════════════════════════════════════════════════════════
-    ws4 = wb.create_sheet('4. How k Is Calculated')
+    ws4 = cast(Worksheet, wb.create_sheet('4. How k Is Calculated'))
     ws4.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',22),('C',22),('D',16),('E',16),('F',16),('G',16)]:
         ws4.column_dimensions[col].width = w
@@ -2101,10 +2159,10 @@ def _api_formula_guide_inner():
 
     if dyn_code and dyn_formula:
         ws4.merge_cells('A13:G13')
-        ws4['A13'].value = f'Formula:   {dyn_formula}'
-        ws4['A13'].font  = Font(bold=True, size=11, color='1D4ED8', name='Courier New')
-        ws4['A13'].fill  = fill(BLU_L)
-        ws4['A13'].alignment = Alignment(horizontal='left', vertical='center')
+        _cell(ws4, 'A13').value = f'Formula:   {dyn_formula}'
+        _cell(ws4, 'A13').font  = Font(bold=True, size=11, color='1D4ED8', name='Courier New')
+        _cell(ws4, 'A13').fill  = fill(BLU_L)
+        _cell(ws4, 'A13').alignment = Alignment(horizontal='left', vertical='center')
         ws4.row_dimensions[13].height = 24
         hdr_row(ws4, 14, ['','L','W','H','Actual Q.ty (BOM)','Tool Formula Result','Match?'], NAV, height=18)
         table_start = 15
@@ -2143,16 +2201,16 @@ def _api_formula_guide_inner():
 
     rr_formula = table_start+len(eff_data)+1
     ws4.merge_cells(f'A{rr_formula}:G{rr_formula}')
-    ws4[f'A{rr_formula}'].value = f'Formula used:   {dyn_formula or "IF(L>=84,0.691,IF(L>=80,0.661,W*0.007524+0.059286))"}'
-    ws4[f'A{rr_formula}'].font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
-    ws4[f'A{rr_formula}'].fill  = fill(BLU_L)
-    ws4[f'A{rr_formula}'].alignment = Alignment(horizontal='left', vertical='center')
+    _cell(ws4, f'A{rr_formula}').value = f'Formula used:   {dyn_formula or "IF(L>=84,0.691,IF(L>=80,0.661,W*0.007524+0.059286))"}'
+    _cell(ws4, f'A{rr_formula}').font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
+    _cell(ws4, f'A{rr_formula}').fill  = fill(BLU_L)
+    _cell(ws4, f'A{rr_formula}').alignment = Alignment(horizontal='left', vertical='center')
     ws4.row_dimensions[rr_formula].height = 28
 
     # ═══════════════════════════════════════════════════════════
     # SHEET 4b — HOW k IS CALCULATED (step-by-step derivation)
     # ═══════════════════════════════════════════════════════════
-    ws4b = wb.create_sheet('4b. k Derivation (Step-by-Step)')
+    ws4b = cast(Worksheet, wb.create_sheet('4b. k Derivation (Step-by-Step)'))
     ws4b.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',16),('C',14),('D',14),('E',14),('F',20),('G',20),('H',20)]:
         ws4b.column_dimensions[col].width = w
@@ -2166,29 +2224,29 @@ def _api_formula_guide_inner():
 
     # Key concept
     ws4b.merge_cells('A3:H3')
-    ws4b['A3'].value = (
+    _cell(ws4b, 'A3').value = (
         'k  =  AVERAGE of  ( Q.ty from BOM file  ÷  Pattern Value for same size )\n'
         'The tool calculates individual k for EVERY size in the REF sheet, then takes the MEAN.'
     )
-    ws4b['A3'].font  = hfont(size=11, color=GRN, bold=True)
-    ws4b['A3'].fill  = fill(GRN_L)
-    ws4b['A3'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    _cell(ws4b, 'A3').font  = hfont(size=11, color=GRN, bold=True)
+    _cell(ws4b, 'A3').fill  = fill(GRN_L)
+    _cell(ws4b, 'A3').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
     ws4b.row_dimensions[3].height = 44
 
     # Detected pattern
     ws4b.merge_cells('A5:H5')
-    ws4b['A5'].value = f'Auto-detected pattern:  {formula_label}'
-    ws4b['A5'].font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
-    ws4b['A5'].fill  = fill(BLU_L)
-    ws4b['A5'].alignment = Alignment(horizontal='left', vertical='center')
+    _cell(ws4b, 'A5').value = f'Auto-detected pattern:  {formula_label}'
+    _cell(ws4b, 'A5').font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
+    _cell(ws4b, 'A5').fill  = fill(BLU_L)
+    _cell(ws4b, 'A5').alignment = Alignment(horizontal='left', vertical='center')
     ws4b.row_dimensions[5].height = 26
 
     # Formula for k
     ws4b.merge_cells('A6:H6')
-    ws4b['A6'].value = 'For each size:   Individual k  =  Q.ty (BOM file)  ÷  Pattern Value  =  Q.ty  ÷  2*(L+W)*H'
-    ws4b['A6'].font  = Font(bold=True, size=11, color=AMB, name='Courier New')
-    ws4b['A6'].fill  = fill(AMB_L)
-    ws4b['A6'].alignment = Alignment(horizontal='left', vertical='center')
+    _cell(ws4b, 'A6').value = 'For each size:   Individual k  =  Q.ty (BOM file)  ÷  Pattern Value  =  Q.ty  ÷  2*(L+W)*H'
+    _cell(ws4b, 'A6').font  = Font(bold=True, size=11, color=AMB, name='Courier New')
+    _cell(ws4b, 'A6').fill  = fill(AMB_L)
+    _cell(ws4b, 'A6').alignment = Alignment(horizontal='left', vertical='center')
     ws4b.row_dimensions[6].height = 22
 
     # Sample derivation table
@@ -2258,10 +2316,10 @@ def _api_formula_guide_inner():
     # Average row
     rr_avg = 10 + len(derive_rows)
     ws4b.merge_cells(f'A{rr_avg}:F{rr_avg}')
-    ws4b[f'A{rr_avg}'].value = f'AVERAGE of {len(k_values)} individual k values   (range: {k_min} to {k_max})'
-    ws4b[f'A{rr_avg}'].font  = hfont(size=11, bold=True, color=WHT)
-    ws4b[f'A{rr_avg}'].fill  = fill(GRN)
-    ws4b[f'A{rr_avg}'].alignment = Alignment(horizontal='right', vertical='center')
+    _cell(ws4b, f'A{rr_avg}').value = f'AVERAGE of {len(k_values)} individual k values   (range: {k_min} to {k_max})'
+    _cell(ws4b, f'A{rr_avg}').font  = hfont(size=11, bold=True, color=WHT)
+    _cell(ws4b, f'A{rr_avg}').fill  = fill(GRN)
+    _cell(ws4b, f'A{rr_avg}').alignment = Alignment(horizontal='right', vertical='center')
     ws4b.cell(rr_avg, 7, k_avg).font  = Font(bold=True, size=14, color=WHT, name='Courier New')
     ws4b.cell(rr_avg, 7).fill         = fill(GRN)
     ws4b.cell(rr_avg, 7).alignment    = Alignment(horizontal='center', vertical='center')
@@ -2272,28 +2330,28 @@ def _api_formula_guide_inner():
     # Final formula box
     rr_final = rr_avg + 2
     ws4b.merge_cells(f'A{rr_final}:H{rr_final}')
-    ws4b[f'A{rr_final}'].value = (
+    _cell(ws4b, f'A{rr_final}').value = (
         f'FINAL FORMULA:   2*(L+W)*H  *  {k_avg}'
         f'          (this is what the tool shows in the Formula field)'
     )
-    ws4b[f'A{rr_final}'].font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
-    ws4b[f'A{rr_final}'].fill  = fill(BLU_L)
-    ws4b[f'A{rr_final}'].alignment = Alignment(horizontal='left', vertical='center')
+    _cell(ws4b, f'A{rr_final}').font  = Font(bold=True, size=12, color='1D4ED8', name='Courier New')
+    _cell(ws4b, f'A{rr_final}').fill  = fill(BLU_L)
+    _cell(ws4b, f'A{rr_final}').alignment = Alignment(horizontal='left', vertical='center')
     ws4b.row_dimensions[rr_final].height = 28
 
     # Why values differ slightly
     rr_note = rr_final + 2
     ws4b.merge_cells(f'A{rr_note}:H{rr_note}')
-    ws4b[f'A{rr_note}'].value = (
+    _cell(ws4b, f'A{rr_note}').value = (
         'WHY ARE INDIVIDUAL k VALUES NOT EXACTLY THE SAME?   '
         'The Q.ty values in the BOM file are rounded (e.g. 10.77 instead of 10.7695...). '
         'This causes tiny differences in k per size. '
         'The tool uses the MEAN to find the best single factor that fits all sizes with minimum error. '
         f'In this case, CV (error rate) = {round((max(k_values)-min(k_values))/(k_avg*2)*100,2) if k_avg else 0}% — very accurate.'
     )
-    ws4b[f'A{rr_note}'].font  = hfont(size=10, color=AMB, italic=True, bold=False)
-    ws4b[f'A{rr_note}'].fill  = fill(AMB_L)
-    ws4b[f'A{rr_note}'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    _cell(ws4b, f'A{rr_note}').font  = hfont(size=10, color=AMB, italic=True, bold=False)
+    _cell(ws4b, f'A{rr_note}').fill  = fill(AMB_L)
+    _cell(ws4b, f'A{rr_note}').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
     ws4b.row_dimensions[rr_note].height = 44
 
     # Extract fixed_l from dyn_formula (parse IF conditions like IF(L>=84,0.691,...))
@@ -2309,22 +2367,22 @@ def _api_formula_guide_inner():
     if fixed_l:
         r_fc = rr_note + 3
         ws4b.merge_cells(f'A{r_fc}:H{r_fc}')
-        ws4b[f'A{r_fc}'].value = 'SECTION 2 — HOW THE FIXED CONSTANTS ARE DERIVED  (e.g. 2.159 for L>=84, 2.057 for L>=80)'
-        ws4b[f'A{r_fc}'].font  = hfont(size=12, color=WHT)
-        ws4b[f'A{r_fc}'].fill  = fill(ACC)
-        ws4b[f'A{r_fc}'].alignment = Alignment(horizontal='left', vertical='center')
+        _cell(ws4b, f'A{r_fc}').value = 'SECTION 2 — HOW THE FIXED CONSTANTS ARE DERIVED  (e.g. 2.159 for L>=84, 2.057 for L>=80)'
+        _cell(ws4b, f'A{r_fc}').font  = hfont(size=12, color=WHT)
+        _cell(ws4b, f'A{r_fc}').fill  = fill(ACC)
+        _cell(ws4b, f'A{r_fc}').alignment = Alignment(horizontal='left', vertical='center')
         ws4b.row_dimensions[r_fc].height = 26
 
         # Explanation box
         ws4b.merge_cells(f'A{r_fc+1}:H{r_fc+1}')
-        ws4b[f'A{r_fc+1}'].value = (
+        _cell(ws4b, f'A{r_fc+1}').value = (
             'For oversized mattresses (L=80" and L=84"), this item uses a FIXED Q.ty regardless of Width.\n'
             'Why? For large mattresses, a standard panel/component of fixed size is used — Width does not affect consumption.\n'
             'To find the constant: Go to REF sheet → Filter all rows with L=84 → Note Q.ty values → All the same → That IS the constant.'
         )
-        ws4b[f'A{r_fc+1}'].font  = hfont(size=10, bold=False)
-        ws4b[f'A{r_fc+1}'].fill  = fill(BLU_L)
-        ws4b[f'A{r_fc+1}'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        _cell(ws4b, f'A{r_fc+1}').font  = hfont(size=10, bold=False)
+        _cell(ws4b, f'A{r_fc+1}').fill  = fill(BLU_L)
+        _cell(ws4b, f'A{r_fc+1}').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
         ws4b.row_dimensions[r_fc+1].height = 52
 
         # Step-by-step for each fixed L group
@@ -2332,10 +2390,10 @@ def _api_formula_guide_inner():
         for l_val, const_qty in sorted(fixed_l.items(), reverse=True):
             # Section header
             ws4b.merge_cells(f'A{r_step}:H{r_step}')
-            ws4b[f'A{r_step}'].value = f'STEP-BY-STEP:  L = {l_val}"  →  Fixed Constant = {const_qty}'
-            ws4b[f'A{r_step}'].font  = hfont(size=11, color=WHT)
-            ws4b[f'A{r_step}'].fill  = fill(GRN)
-            ws4b[f'A{r_step}'].alignment = Alignment(horizontal='left', vertical='center')
+            _cell(ws4b, f'A{r_step}').value = f'STEP-BY-STEP:  L = {l_val}"  →  Fixed Constant = {const_qty}'
+            _cell(ws4b, f'A{r_step}').font  = hfont(size=11, color=WHT)
+            _cell(ws4b, f'A{r_step}').fill  = fill(GRN)
+            _cell(ws4b, f'A{r_step}').alignment = Alignment(horizontal='left', vertical='center')
             ws4b.row_dimensions[r_step].height = 22
             r_step += 1
 
@@ -2370,10 +2428,10 @@ def _api_formula_guide_inner():
 
             # Mini verification table
             ws4b.merge_cells(f'B{r_step}:H{r_step}')
-            ws4b[f'B{r_step}'].value = f'VERIFICATION — L={l_val}: Q.ty is the same for every Width:'
-            ws4b[f'B{r_step}'].font  = hfont(size=10, bold=True, color=GRN)
-            ws4b[f'B{r_step}'].fill  = fill(GRN_L)
-            ws4b[f'B{r_step}'].alignment = Alignment(horizontal='left', vertical='center')
+            _cell(ws4b, f'B{r_step}').value = f'VERIFICATION — L={l_val}: Q.ty is the same for every Width:'
+            _cell(ws4b, f'B{r_step}').font  = hfont(size=10, bold=True, color=GRN)
+            _cell(ws4b, f'B{r_step}').fill  = fill(GRN_L)
+            _cell(ws4b, f'B{r_step}').alignment = Alignment(horizontal='left', vertical='center')
             ws4b.row_dimensions[r_step].height = 18
             r_step += 1
 
@@ -2402,41 +2460,41 @@ def _api_formula_guide_inner():
 
             # Conclusion
             ws4b.merge_cells(f'A{r_step}:H{r_step}')
-            ws4b[f'A{r_step}'].value = (
+            _cell(ws4b, f'A{r_step}').value = (
                 f'RESULT:  All 7 widths at L={l_val} give exactly {const_qty}.  '
                 f'Therefore the IF condition  IF(L>={l_val}, {const_qty}, ...)  uses this as the constant.  '
                 f'No calculation needed — just read the value directly from the REF sheet for L={l_val}.'
             )
-            ws4b[f'A{r_step}'].font  = hfont(size=10, bold=True, color=GRN)
-            ws4b[f'A{r_step}'].fill  = fill(GRN_L)
-            ws4b[f'A{r_step}'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+            _cell(ws4b, f'A{r_step}').font  = hfont(size=10, bold=True, color=GRN)
+            _cell(ws4b, f'A{r_step}').fill  = fill(GRN_L)
+            _cell(ws4b, f'A{r_step}').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
             ws4b.row_dimensions[r_step].height = 36
             r_step += 3   # gap before next L group
 
         # Final formula recap
         ws4b.merge_cells(f'A{r_step}:H{r_step}')
         full_formula = dyn_formula or 'IF(L>=84,2.159,IF(L>=80,2.057,W*a+b))'
-        ws4b[f'A{r_step}'].value = f'COMPLETE FORMULA:   {full_formula}'
-        ws4b[f'A{r_step}'].font  = Font(bold=True, size=13, color='1D4ED8', name='Courier New')
-        ws4b[f'A{r_step}'].fill  = fill(BLU_L)
-        ws4b[f'A{r_step}'].alignment = Alignment(horizontal='left', vertical='center')
+        _cell(ws4b, f'A{r_step}').value = f'COMPLETE FORMULA:   {full_formula}'
+        _cell(ws4b, f'A{r_step}').font  = Font(bold=True, size=13, color='1D4ED8', name='Courier New')
+        _cell(ws4b, f'A{r_step}').fill  = fill(BLU_L)
+        _cell(ws4b, f'A{r_step}').alignment = Alignment(horizontal='left', vertical='center')
         ws4b.row_dimensions[r_step].height = 30
 
         ws4b.merge_cells(f'A{r_step+1}:H{r_step+1}')
-        ws4b[f'A{r_step+1}'].value = (
+        _cell(ws4b, f'A{r_step+1}').value = (
             'Reading the formula:  '
             + '  |  '.join([f'L>={lv} → fixed {qty}' for lv, qty in sorted(fixed_l.items(), reverse=True)])
             + '  |  Smaller L → use W-linear formula'
         )
-        ws4b[f'A{r_step+1}'].font  = hfont(size=11, bold=False)
-        ws4b[f'A{r_step+1}'].fill  = fill(GRY)
-        ws4b[f'A{r_step+1}'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        _cell(ws4b, f'A{r_step+1}').font  = hfont(size=11, bold=False)
+        _cell(ws4b, f'A{r_step+1}').fill  = fill(GRY)
+        _cell(ws4b, f'A{r_step+1}').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
         ws4b.row_dimensions[r_step+1].height = 24
 
     # ═══════════════════════════════════════════════════════════
     # SHEET 5 — USING EXCEL FORMULAS DIRECTLY (with IF)
     # ═══════════════════════════════════════════════════════════
-    ws5 = wb.create_sheet('5. Excel Formulas with IF')
+    ws5 = cast(Worksheet, wb.create_sheet('5. Excel Formulas with IF'))
     ws5.sheet_view.showGridLines = False
     for col, w in [('A',4),('B',44),('C',44)]:
         ws5.column_dimensions[col].width = w
@@ -2453,10 +2511,10 @@ def _api_formula_guide_inner():
     section(ws5, 6, 'REAL EXAMPLE FROM ALLURE-MF-ECOM DATA SHEET (cell G15, item RMI-PVC-50)', cols='A:C')
 
     ws5.merge_cells('A7:C7')
-    ws5['A7'].value = '=IF(M2=6,IF(K2<79,(L2*2)+(M2*2),(K2*2)+(M2*2))+4,IF(K2<76,(L2*2)+(M2*2),(K2*2)+(M2*2))+4)*89.5*0.0254*0.0254*0.00009*1300'
-    ws5['A7'].font  = Font(bold=True, size=11, color='1D4ED8', name='Courier New')
-    ws5['A7'].fill  = fill(BLU_L)
-    ws5['A7'].alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    _cell(ws5, 'A7').value = '=IF(M2=6,IF(K2<79,(L2*2)+(M2*2),(K2*2)+(M2*2))+4,IF(K2<76,(L2*2)+(M2*2),(K2*2)+(M2*2))+4)*89.5*0.0254*0.0254*0.00009*1300'
+    _cell(ws5, 'A7').font  = Font(bold=True, size=11, color='1D4ED8', name='Courier New')
+    _cell(ws5, 'A7').fill  = fill(BLU_L)
+    _cell(ws5, 'A7').alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
     ws5.row_dimensions[7].height = 36
 
     section(ws5, 9, 'HOW THE TOOL PROCESSES IT', cols='A:C')
@@ -2688,7 +2746,7 @@ def api_replace_preview():
             found_rows = []
 
             if 'REF' in wb.sheetnames:
-                ws  = wb['REF']
+                ws  = cast(Worksheet, wb['REF'])
                 hdr = [str(c or '').strip().upper()
                        for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
                 ic_idx  = next((i for i,h in enumerate(hdr) if h in ('ITEMCODE','ITEM CODE','ITEM_CODE')), 3)
@@ -2709,7 +2767,7 @@ def api_replace_preview():
                         })
 
             if not found_rows and 'DATA' in wb.sheetnames:
-                ws = wb['DATA']
+                ws = cast(Worksheet, wb['DATA'])
                 for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_col=10, values_only=True), start=2):
                     if not row or all(v is None for v in row): continue
                     ic = str(row[4] or '').strip().upper()
@@ -3044,7 +3102,7 @@ def api_replace_execute():
                     ws_name = 'REF'
                 else:
                     continue
-                ws = wb[ws_name]
+                ws = cast(Worksheet, wb[ws_name])
                 # Use column stored during Phase 2 scan (exact column per file)
                 if ws_name == 'components':
                     ic_col = 1
@@ -3141,7 +3199,7 @@ def api_snapshot_download(snap_id):
         new_code = snap.get('new_code', '')
 
         # ── Styles ────────────────────────────────────────────────────────
-        def _fill(hex_c): return _PF('solid', fgColor=hex_c)
+        def _fill(hex_c): return _PF('solid', fgColor=hex_c)  # type: ignore[reportArgumentType]
         def _font(bold=True,size=11,color='000000',italic=False):
             return _F(bold=bold,size=size,color=color,italic=italic,name='Aptos Narrow')
         def _mono(bold=True,size=10,color='000000'):
@@ -3171,8 +3229,8 @@ def api_snapshot_download(snap_id):
             try:
                 wb2 = load_workbook(filepath, read_only=True, data_only=True)
                 ws2 = None
-                if 'REF' in wb2.sheetnames:   ws2 = wb2['REF']
-                elif 'DATA' in wb2.sheetnames: ws2 = wb2['DATA']
+                if 'REF' in wb2.sheetnames:   ws2 = cast(Worksheet, wb2['REF'])
+                elif 'DATA' in wb2.sheetnames: ws2 = cast(Worksheet, wb2['DATA'])
                 if not ws2: wb2.close(); return rows
                 is_ref = (ws2.title == 'REF')
                 seen_mc = set()
@@ -3213,6 +3271,7 @@ def api_snapshot_download(snap_id):
         wb = _WB()
         ws = wb.active
         assert ws is not None
+        ws = cast(Worksheet, ws)
         ws.title = 'Change Report'
         ws.sheet_view.showGridLines = False
 
@@ -3457,7 +3516,7 @@ def _perform_replace_rollback(snap_id):
                     ws_name = 'REF'
                 else:
                     continue
-                ws = wb[ws_name]
+                ws = cast(Worksheet, wb[ws_name])
                 if ws_name == 'components':
                     ic_col = 1
                 elif 'ic_col' in row_info:
@@ -3706,7 +3765,7 @@ def _parse_macro_spec(filepath: str, filename: str) -> dict:
     sku_order: list = []
 
     if 'REF' in wb.sheetnames:
-        ref = wb['REF']
+        ref = cast(Worksheet, wb['REF'])
         hdr = [str(c or '').strip().upper()
                for c in next(ref.iter_rows(min_row=1, max_row=1, values_only=True))]
 
@@ -3784,7 +3843,7 @@ def _parse_mdcf_spec(filepath: str, filename: str) -> dict:
         wb.close()
         raise ValueError('EditProductStructure sheet not found in MDCF file')
 
-    ws = wb[sheet_name]
+    ws = cast(Worksheet, wb[sheet_name])
     bom_by_sku: dict = {}
     sku_order: list = []
 
@@ -3863,6 +3922,19 @@ def api_parse_spec():
             try: os.unlink(tmp_path)
             except: pass
 
+    # Cache parsed spec server-side so api_newproduct_generate can attach
+    # per-SKU spec_comps even when an older browser JS omits them from payload.
+    import uuid as _uuid
+    spec_id = str(_uuid.uuid4())
+    _parsed_spec_cache[spec_id] = result
+    session['parsed_spec_id'] = spec_id
+    # Evict old entries if cache grows large (keep last 20 per server restart)
+    if len(_parsed_spec_cache) > 20:
+        oldest = next(iter(_parsed_spec_cache))
+        del _parsed_spec_cache[oldest]
+    # Persist to disk so generate can find it even after a server restart.
+    _save_spec_to_disk(result.get('product_name', ''), result)
+
     activity_log._log(session.get('username', 'User'), session.get('role', ''),
                       'parse_spec', f'Parsed file: {f.filename} | type={file_type} | product={result.get("product_name","")}')
     return jsonify(result)
@@ -3923,11 +3995,57 @@ def api_newproduct_generate():
     
     if not all([product_name, prefix, sizes, components, approval_ref]):
         return jsonify({'error': 'Missing required fields'}), 400
-    
+
+    # Server-side spec_comps attachment.
+    # Older browser JS omits spec_comps from size rows; newer JS includes them.
+    # Try (1) in-memory session cache, then (2) persistent disk cache keyed by
+    # product_name — so this works even after a server restart or tab-reload skip.
+    spec_id     = session.get('parsed_spec_id')
+    cached_spec = _parsed_spec_cache.get(spec_id) if spec_id else None
+    print(f'[GEN] product={product_name!r} sizes={len(sizes)} session_spec={spec_id is not None} mem_hit={cached_spec is not None}', flush=True)
+    if not cached_spec:
+        cached_spec = _load_spec_from_disk(product_name)
+        print(f'[GEN] disk_cache_hit={cached_spec is not None}', flush=True)
+    if cached_spec and cached_spec.get('bom_by_sku'):
+        print(f'[GEN] spec has {len(cached_spec["bom_by_sku"])} SKUs; first size row: {sizes[0] if sizes else None}', flush=True)
+        bom_by_sku  = cached_spec['bom_by_sku']
+        sku_order_c = cached_spec.get('skus', list(bom_by_sku.keys()))
+        attached = 0
+        for size in sizes:
+            if size.get('spec_comps'):          # JS already attached it — trust JS
+                attached += 1
+                continue
+            # Primary: direct _sku lookup
+            _s = size.get('_sku', '')
+            if _s and _s in bom_by_sku:
+                size['spec_comps'] = bom_by_sku[_s]
+                attached += 1
+                continue
+            # Fallback: match by colour + L×W×H using two-step extraction.
+            # Old JS sends c='NLBG' (greedy regex, 4 chars); correct colour is
+            # always the last 2 letters (BG, GR, PK, DB etc.), so normalise here.
+            rc = str(size.get('c') or '').upper()
+            if len(rc) > 2:
+                rc = rc[-2:]
+            rl = str(size.get('l', ''))
+            rw = str(size.get('w', ''))
+            rh = str(size.get('h', ''))
+            hit = next(
+                (s for s in sku_order_c
+                 if (lambda sp: sp and sp['c'] == rc and sp['l'] == rl
+                                and sp['w'] == rw
+                                and int(sp['h']) == int(rh))(_sku_parts(s))),
+                None
+            )
+            if hit:
+                size['spec_comps'] = bom_by_sku[hit]
+                attached += 1
+        print(f'[GEN] spec_comps attached: {attached}/{len(sizes)} sizes', flush=True)
+
     try:
         # Get settings
         settings = db.get_settings()
-        
+
         # Generate BOM
         output_rows = bom_engine.generate_new_product_bom(
             product_name=product_name,
@@ -4348,8 +4466,9 @@ def api_nearest_bom_bulk_template():
     wb = Workbook()
     ws = wb.active
     assert ws is not None
+    ws = cast(Worksheet, ws)
     ws.title = 'Sheet1'
-    hdr_fill = PatternFill('solid', fgColor='1A56DB')
+    hdr_fill = PatternFill('solid', fgColor='1A56DB')  # type: ignore[reportArgumentType]
     hdr_font = Font(bold=True, color='FFFFFF', size=10)
     for ci, h in enumerate(['S.no', 'Mattress Code', 'Qty'], 1):
         c = ws.cell(row=1, column=ci, value=h)
@@ -4391,7 +4510,7 @@ def api_nearest_bom_bulk_upload():
         f.save(tmp_path)
 
         wb = load_workbook(tmp_path, read_only=True, data_only=True)
-        ws = wb.worksheets[0]
+        ws = cast(Worksheet, wb.worksheets[0])
         hdr = [str(c or '').strip().upper() for c in
                (next(ws.iter_rows(min_row=1, max_row=1, values_only=True), []) or [])]
         code_idx = next((i for i, h in enumerate(hdr) if 'MATTRESS' in h or 'ITEM CODE' in h or h == 'CODE'), None)
@@ -4644,7 +4763,7 @@ def api_approve(appr_id):
                             ws_name = 'REF'
                         else:
                             continue
-                        ws = wb[ws_name]
+                        ws = cast(Worksheet, wb[ws_name])
                         if ws_name == 'components':
                             ic_col = 1
                         elif 'ic_col' in row_info:
