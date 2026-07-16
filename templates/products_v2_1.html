@@ -2857,16 +2857,19 @@ function renderDetail(prod){
   setOpts('df-height',prod.heights.slice().sort((a,b)=>a-b),v=>v+'"','All Heights');
   setOpts('df-colour',prod.colours.filter(c=>c),clrLabel,'All Colours');
   setOpts('df-dim',dims,v=>v,'All Sizes');
-  // Component-level filters
+  // Component-level filters — reset values so stale selections don't hide rows
   setOpts('df-dept',   prod.departments||[], v=>v, 'All Departments');
   setOpts('df-section',prod.sections||[],    v=>v, 'All Sections');
   const whList=[...new Set([...(prod.wh_codes||[]),'CBEFG'])].sort();
   setOpts('df-wh', whList, v=>v.replace(/^CBE/,''), 'All WH Codes');
+  document.getElementById('df-dept').value='';
+  document.getElementById('df-section').value='';
+  document.getElementById('df-wh').value='';
   // FIX Bug 1+2+3: Default to first real SKU BOM from REF sheet
   const defaultBOM=prod.bom_by_sku[prod.first_sku]||prod.components;
   renderBOMRows(defaultBOM);
   document.getElementById('sku-match-count').textContent=
-    `Showing: ${prod.first_sku} (${defaultBOM.length} rows)`;
+    `Showing: ${prod.first_sku||'All BOM Codes'} (${defaultBOM.length} rows)`;
   renderSKUMatrix(prod.skus);
   renderSummaryTab(prod);
   document.getElementById('preview-loading').style.display='none';

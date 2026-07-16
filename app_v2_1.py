@@ -1132,7 +1132,20 @@ def api_product_bom(product_id):
 
         heights = sorted([h for h in heights_set if h], key=_safe_float)
         colours = sorted(c for c in colours_set if c)
-        fallback_comps = bom_by_sku.get(first_sku, []) if first_sku else []
+
+        # Flat SFG reference files have no L/W/H on any SKU.
+        # Show ALL rows by default; put the Bom Code in the seq (# column)
+        # so every group is identifiable in the one combined view.
+        if skus and not heights and not colours and all(
+                not s.get('L') and not s.get('H') for s in skus):
+            flat_all = []
+            for s in skus:
+                for r in bom_by_sku.get(s['code'], []):
+                    flat_all.append({**r, 'seq': s['code']})
+            fallback_comps = flat_all
+            first_sku = None
+        else:
+            fallback_comps = bom_by_sku.get(first_sku, []) if first_sku else []
 
         # Unique dept/section/wh across all component rows for filter dropdowns
         all_rows = [r for rows in bom_by_sku.values() for r in rows]

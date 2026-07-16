@@ -98,7 +98,8 @@
       "PowerShell(taskkill /F /PID 8992)",
       "PowerShell(taskkill /T /F /PID 20752 2>&1)",
       "Bash(taskkill //F //PID 8992)",
-      "PowerShell(schtasks /end /tn \"PEPS BOM Tool\" 2>&1)"
+      "PowerShell(schtasks /end /tn \"PEPS BOM Tool\" 2>&1)",
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\" --max-time 5 \"https://localhost:5020/api/health\")"
     ]
   }
 }
