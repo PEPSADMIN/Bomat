@@ -66,7 +66,7 @@ if ($loopRunning) {
     Write-Log "run_forever.bat loop is alive - it will relaunch the server on its own within ~5s."
 } else {
     Write-Log "run_forever.bat loop is NOT running - starting it fresh."
-    Start-Process -FilePath "$workDir\run_forever.bat" -WorkingDirectory $workDir -WindowStyle Hidden
+    Start-Process -FilePath "$workDir\run_forever.bat" -WorkingDirectory $workDir -WindowStyle Normal
 }
 
 Start-Sleep -Seconds 12

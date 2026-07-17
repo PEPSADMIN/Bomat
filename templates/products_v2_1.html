@@ -591,6 +591,34 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
 /* BOM table row cells */
 .bom-seq{font-family:'DM Mono',monospace;color:var(--ink3);font-size:12px}
 .bom-ic{font-family:'DM Mono',monospace;font-size:11.5px}
+.col-sfg-colour{display:none}
+#bom-table.sfg-mode .col-sfg-colour{display:table-cell}
+/* Multi-select department dropdown */
+.ms-wrap{position:relative;display:inline-block;vertical-align:middle}
+.ms-btn{appearance:none;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:4px 22px 4px 8px;font:inherit;font-size:12px;color:var(--ink);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center;background-size:10px 6px}
+.ms-btn.has-sel{border-color:var(--accent);color:var(--accent);font-weight:600}
+/* Full-width variant for form fields (Global Replace) — matches .rep-dept-sel */
+.ms-btn-form{width:100%;text-align:left;padding:7px 28px 7px 10px;font-size:13px;
+  border:1.5px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:10px 6px;max-width:100%}
+.ms-wrap.ms-form{display:block;width:100%}
+.ms-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:210px;max-height:230px;
+  overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:400;padding:4px 0}
+.ms-panel-form{min-width:100%}
+.ms-wrap.open .ms-panel{display:block}
+.ms-chk{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;
+  font-size:12.5px;color:var(--ink);-webkit-user-select:none;user-select:none}
+.ms-chk:hover{background:var(--line)}
+.ms-chk input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex-shrink:0}
+.ms-clear{display:block;width:100%;text-align:center;padding:5px;font-size:11.5px;
+  color:var(--ink3);cursor:pointer;border-top:1px solid var(--line);margin-top:2px}
+.ms-clear:hover{color:var(--accent)}
 .bom-edited-pill{font-size:10px;margin-left:4px}
 .bom-desc{font-size:11.5px;color:var(--ink2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bom-dept,.bom-sect{font-size:12px;color:var(--ink2)}
@@ -796,6 +824,15 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
 .rep-required{color:var(--red);font-weight:700}
 .rep-dept-sel{width:100%;border:1.5px solid var(--line);border-radius:var(--r);padding:7px 10px;font:inherit;font-size:13px;background:var(--surface);color:var(--ink)}
 .rep-dept-sel:invalid,.rep-dept-sel[value=""]{color:var(--ink3)}
+/* FG / SFG category toggle above Department */
+.rep-cat-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.rep-cat-label{font-size:12px;color:var(--ink3);white-space:nowrap}
+.rep-cat-grp{display:flex;border:1.5px solid var(--line);border-radius:var(--r);overflow:hidden}
+.rep-cat-btn{padding:4px 14px;border:none;border-right:1.5px solid var(--line);background:var(--surface);
+  color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;transition:background .12s}
+.rep-cat-btn:last-child{border-right:none}
+.rep-cat-btn:hover:not(.active){background:var(--line)}
+.rep-cat-btn.active{background:var(--accent);color:#fff}
 /* global replace preview */
 .rep-preview-toggle{width:100%;display:flex;align-items:center;gap:10px;padding:12px 16px;background:none;border:none;cursor:pointer;text-align:left;transition:background .12s}
 .rep-preview-toggle:hover{background:rgba(26,86,219,.04)}
@@ -1164,9 +1201,10 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
               <select id="df-dim" onchange="filterBOM()" class="bom-filter-sel" title="Filter by size">
                 <option value="">All Sizes</option>
               </select>
-              <select id="df-dept" onchange="filterBOMRows()" class="bom-filter-sel" title="Filter by department">
-                <option value="">All Departments</option>
-              </select>
+              <div class="ms-wrap" id="ms-dept-wrap">
+                <button class="ms-btn" id="ms-dept-btn" type="button" onclick="toggleDeptMS(event)" title="Filter by department">All Departments</button>
+                <div class="ms-panel" id="ms-dept-panel"></div>
+              </div>
               <select id="df-section" onchange="filterBOMRows()" class="bom-filter-sel" title="Filter by section">
                 <option value="">All Sections</option>
               </select>
@@ -1194,6 +1232,7 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
                     <thead><tr>
                       <th>#</th><th>Item Code</th><th>Description</th>
                       <th>Department</th><th>Section</th>
+                      <th class="col-sfg-colour">Colour</th>
                       <th>Qty</th><th>UOM</th><th>WH Code</th><th>Edit</th>
                     </tr></thead>
                     <tbody id="bom-tbody"></tbody>
@@ -1448,13 +1487,22 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
               </div>
             </div>
 
-            <!-- Row 2: Department + Section -->
-            <div class="form-row mt-2">
+            <!-- Category toggle + Row 2: Department + Section -->
+            <div class="rep-cat-row mt-2">
+              <span class="rep-cat-label">CATEGORY:</span>
+              <div class="rep-cat-grp">
+                <button type="button" class="rep-cat-btn active" data-cat="" onclick="setRepCat(this)">All</button>
+                <button type="button" class="rep-cat-btn" data-cat="FG" onclick="setRepCat(this)">FG</button>
+                <button type="button" class="rep-cat-btn" data-cat="SFG" onclick="setRepCat(this)">SFG</button>
+              </div>
+            </div>
+            <div class="form-row">
               <div class="form-group">
                 <label>Department <span class="rep-optional">(Optional)</span></label>
-                <select id="rep-dept" class="rep-dept-sel" title="Department" required>
-                  <option value="">— Select Department —</option>
-                </select>
+                <div class="ms-wrap ms-form" id="rep-dept-wrap">
+                  <button class="ms-btn ms-btn-form" id="rep-dept-btn" type="button" onclick="toggleRepDeptMS(event)" title="Filter by department">— Select Department —</button>
+                  <div class="ms-panel ms-panel-form" id="rep-dept-panel"></div>
+                </div>
               </div>
               <div class="form-group">
                 <label>Section <span class="rep-optional">(Optional)</span></label>
@@ -2505,8 +2553,8 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
       <div class="exc-detail-row"><span class="exc-lbl">Completed:</span><span id="exc-time" class="exc-time"></span></div>
     </div>
     <div class="exec-complete-actions">
-      <button type="button" class="btn btn-ghost" onclick="document.getElementById('exec-complete-overlay').classList.remove('open');repClearPreview()">Close &amp; Reset</button>
-      <button type="button" class="btn btn-primary" onclick="document.getElementById('exec-complete-overlay').classList.remove('open')">View Rollback ↓</button>
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('exec-complete-overlay').classList.remove('open');repClearPreview();_reEnableDownloadBtns()">Close &amp; Reset</button>
+      <button type="button" class="btn btn-primary" onclick="document.getElementById('exec-complete-overlay').classList.remove('open');_reEnableDownloadBtns()">View Rollback ↓</button>
     </div>
   </div>
 </div>
@@ -2692,6 +2740,86 @@ function setOpts(id,vals,fn,ph){
   vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=fn(v);el.appendChild(o);});
 }
 
+// ── Multi-select Department Dropdown ──────────────────────────────────────
+function buildDeptMS(depts){
+  const panel=document.getElementById('ms-dept-panel');
+  panel.innerHTML=depts.map(d=>
+    `<label class="ms-chk"><input type="checkbox" value="${d}" onchange="onDeptMSChange()"><span>${d}</span></label>`
+  ).join('')+(depts.length?`<span class="ms-clear" onclick="resetDeptMS();filterBOMRows()">Clear selection</span>`:'');
+}
+function resetDeptMS(){
+  document.querySelectorAll('#ms-dept-panel input[type=checkbox]').forEach(cb=>cb.checked=false);
+  _updateDeptBtn();
+}
+function getSelDepts(){
+  return [...document.querySelectorAll('#ms-dept-panel input[type=checkbox]:checked')].map(cb=>cb.value);
+}
+function _updateDeptBtn(){
+  const sel=getSelDepts();
+  const btn=document.getElementById('ms-dept-btn');
+  if(!btn) return;
+  if(sel.length===0){btn.textContent='All Departments';btn.classList.remove('has-sel');}
+  else if(sel.length===1){btn.textContent=sel[0];btn.classList.add('has-sel');}
+  else{btn.textContent=`${sel.length} Departments`;btn.classList.add('has-sel');}
+}
+function onDeptMSChange(){_updateDeptBtn();filterBOMRows();}
+function toggleDeptMS(e){
+  e.stopPropagation();
+  _toggleMSWrap('ms-dept-wrap');
+}
+function toggleRepDeptMS(e){
+  e.stopPropagation();
+  _toggleMSWrap('rep-dept-wrap');
+}
+function _toggleMSWrap(id){
+  const wrap=document.getElementById(id);
+  if(!wrap) return;
+  const opening=!wrap.classList.contains('open');
+  document.querySelectorAll('.ms-wrap.open').forEach(w=>w.classList.remove('open'));
+  if(opening) wrap.classList.add('open');
+}
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.ms-wrap')){
+    document.querySelectorAll('.ms-wrap.open').forEach(w=>w.classList.remove('open'));
+  }
+});
+
+// ── Global Replace: Multi-select Department ───────────────────────────────
+function buildRepDeptMS(depts){
+  const panel=document.getElementById('rep-dept-panel');
+  if(!panel) return;
+  panel.innerHTML=depts.map(d=>
+    `<label class="ms-chk"><input type="checkbox" value="${d}" onchange="onRepDeptMSChange()"><span>${d}</span></label>`
+  ).join('') + (depts.length?`<span class="ms-clear" onclick="resetRepDeptMS()">Clear selection</span>`:'');
+}
+function resetRepDeptMS(){
+  document.querySelectorAll('#rep-dept-panel input[type=checkbox]').forEach(cb=>cb.checked=false);
+  _updateRepDeptBtn();
+}
+function getRepSelDepts(){
+  return [...document.querySelectorAll('#rep-dept-panel input[type=checkbox]:checked')].map(cb=>cb.value);
+}
+function _updateRepDeptBtn(){
+  const sel=getRepSelDepts();
+  const btn=document.getElementById('rep-dept-btn');
+  if(!btn) return;
+  if(sel.length===0){btn.textContent='— Select Department —';btn.classList.remove('has-sel');}
+  else if(sel.length===1){btn.textContent=sel[0];btn.classList.add('has-sel');}
+  else{btn.textContent=`${sel.length} Departments`;btn.classList.add('has-sel');}
+}
+function onRepDeptMSChange(){_updateRepDeptBtn();}
+async function setRepCat(btn){
+  document.querySelectorAll('.rep-cat-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const cat=btn.dataset.cat;
+  try{
+    const res=await fetch('/api/departments'+(cat?'?category='+encodeURIComponent(cat):''));
+    const d=await res.json();
+    buildRepDeptMS(d.departments||[]);
+    resetRepDeptMS();
+  }catch(e){}
+}
+
 function onBrandChange(){
   const brand=document.getElementById('cf-brand').value;
   // Brand enables only Category; downstream filters reset
@@ -2858,15 +2986,19 @@ function renderDetail(prod){
   setOpts('df-colour',prod.colours.filter(c=>c),clrLabel,'All Colours');
   setOpts('df-dim',dims,v=>v,'All Sizes');
   // Component-level filters — reset values so stale selections don't hide rows
-  setOpts('df-dept',   prod.departments||[], v=>v, 'All Departments');
+  buildDeptMS(prod.departments||[]);
+  resetDeptMS();
   setOpts('df-section',prod.sections||[],    v=>v, 'All Sections');
   const whList=[...new Set([...(prod.wh_codes||[]),'CBEFG'])].sort();
   setOpts('df-wh', whList, v=>v.replace(/^CBE/,''), 'All WH Codes');
-  document.getElementById('df-dept').value='';
   document.getElementById('df-section').value='';
   document.getElementById('df-wh').value='';
   // FIX Bug 1+2+3: Default to first real SKU BOM from REF sheet
   const defaultBOM=prod.bom_by_sku[prod.first_sku]||prod.components;
+  // Detect flat SFG reference files (no L/W/H on any SKU)
+  S._isFlatSFG = !prod.first_sku;
+  document.getElementById('bom-table').classList.toggle('sfg-mode', S._isFlatSFG);
+
   renderBOMRows(defaultBOM);
   document.getElementById('sku-match-count').textContent=
     `Showing: ${prod.first_sku||'All BOM Codes'} (${defaultBOM.length} rows)`;
@@ -2882,8 +3014,13 @@ function renderDetail(prod){
     dlBtn.dataset.l=firstSku.L;
     dlBtn.dataset.w=firstSku.W;
     dlBtn.dataset.clr=firstSku.colour||'';
+    dlBtn.dataset.dept='';
     document.getElementById('bom-dl-info').textContent=
       `Showing BOM for ${firstSku.L}×${firstSku.W}×${firstSku.H}" ${clrLabel(firstSku.colour)}`;
+  }else if(S._isFlatSFG){
+    dlBtn.disabled=true;
+    dlBtn.dataset.h=''; dlBtn.dataset.l=''; dlBtn.dataset.w=''; dlBtn.dataset.dept='';
+    document.getElementById('bom-dl-info').textContent='Use Department filter to download a filtered set';
   }else{
     dlBtn.disabled=true;
     document.getElementById('bom-dl-info').textContent='Use Height/Size filters to select a SKU';
@@ -3020,14 +3157,31 @@ function renderBOMRows(comps){
 }
 function filterBOMRows(){
   const comps = S._lastBOMComps || [];
-  const deptF = document.getElementById('df-dept').value;
+  const deptArr= getSelDepts();
   const sectF = document.getElementById('df-section').value;
   const whF   = document.getElementById('df-wh').value;
   const shown = comps.filter(c=>
-    (!deptF || c.department===deptF) &&
+    (!deptArr.length || deptArr.includes(c.department)) &&
     (!sectF || c.section===sectF) &&
     (!whF   || c.wh===whF)
   );
+
+  // Flat SFG: enable "Download This Dept" when dept filter is active
+  if(S._isFlatSFG){
+    const singleBtn=document.getElementById('bom-dl-single');
+    const infoEl=document.getElementById('bom-dl-info');
+    S._selDepts = deptArr;
+    if(deptArr.length){
+      singleBtn.disabled=false;
+      singleBtn.dataset.l=''; singleBtn.dataset.w=''; singleBtn.dataset.h='';
+      const label=deptArr.length===1?deptArr[0]:`${deptArr.length} Departments`;
+      infoEl.textContent=`Will download: ${label} (${shown.length} rows)`;
+    }else{
+      singleBtn.disabled=true;
+      S._selDepts=[];
+      infoEl.textContent='Select Department(s) to download a filtered set';
+    }
+  }
   const tbody=document.getElementById('bom-tbody');
   tbody.innerHTML=shown.map((c,i)=>{
     const origIdx=comps.indexOf(c);
@@ -3043,12 +3197,14 @@ function filterBOMRows(){
     // Derive formula hint for this item at current active size
     const fmHint = _deriveFormulaHint(c.qty, sect, dept);
 
+    const clrVal = c.colour || '';
     return `<tr>
       <td class="bom-seq">${c.seq}</td>
       <td class="bom-ic">${ic}${edit?'<span class="pill pill-blue bom-edited-pill">edited</span>':''}</td>
       <td class="bom-desc" title="${desc.replace(/"/g,'&quot;')}">${desc||'—'}</td>
       <td class="bom-dept">${dept}</td>
       <td class="bom-sect">${sect}</td>
+      <td class="col-sfg-colour bom-colour">${clrVal}</td>
       <td class="mono bom-qty-cell" title="${fmHint ? 'Formula: '+fmHint : ''}">${qty}${fmHint?`<span class="bom-fm-tag" title="Formula: ${fmHint}">ƒ</span>`:''}</td>
       <td class="bom-uom">${uom}</td>
       <td class="bom-wh">${wh.replace(/^CBE/,'')}</td>
@@ -3243,6 +3399,16 @@ function downloadSingle(){
   const btn=document.getElementById('bom-dl-single');
   if(btn.disabled||!S.activeProd) return;
   const {l,w,h,clr}=btn.dataset;
+  // Flat SFG dept download (multiple departments supported)
+  const selDepts=S._selDepts||[];
+  if(selDepts.length&&!l&&!w&&!h){
+    const origHtml=btn.innerHTML;
+    openDlFmt(fmt=>{
+      const body={dept:selDepts, format:fmt, row_edits:_buildRowEditsPayload()};
+      _blobDownload(`/api/download-all/${S.activeProd.id}`, btn, origHtml, body);
+    });
+    return;
+  }
   if(!l||!w||!h){toast('Select a Height and Size using the filters first','err');return;}
   openDlFmt(fmt=>{
     const body = {l:parseInt(l), w:parseInt(w), h, clr:clr||'', format:fmt,
@@ -3250,12 +3416,22 @@ function downloadSingle(){
     _blobDownload(`/api/download-single/${S.activeProd.id}`, btn, null, body);
   });
 }
+function _reEnableDownloadBtns(){
+  const all=document.getElementById('bom-dl-all');
+  if(all){ all.disabled=false; }
+  // bom-dl-single state is managed by filterBOMRows — re-run it if a product is active
+  if(S._isFlatSFG) filterBOMRows();
+}
 function downloadAll(){
   if(!S.activeProd) return;
   const btn=document.getElementById('bom-dl-all');
   const origHtml = btn.innerHTML;
   openDlFmt(fmt=>{
     const body = {format:fmt, row_edits: _buildRowEditsPayload()};
+    // For flat SFG: respect active department filter
+    if(S._isFlatSFG && S._selDepts && S._selDepts.length){
+      body.dept = S._selDepts;
+    }
     _blobDownload(`/api/download-all/${S.activeProd.id}`, btn, origHtml, body);
   });
 }
@@ -3476,7 +3652,8 @@ async function impactDownload(products, format){
     new_code: nw,
     qty_by_size: qbs,
     foam_pattern: fp,
-    format
+    format,
+    dept_filters: getRepSelDepts()
   });
 }
 
@@ -4377,11 +4554,13 @@ function _populateSelect(id, items, placeholder){
 
 // Load dept + section dropdowns when page opens
 async function loadRepDropdowns(){
+  // Reset category toggle to "All" each time
+  document.querySelectorAll('.rep-cat-btn').forEach(b=>b.classList.toggle('active', b.dataset.cat===''));
   try{
     const [dRes, sRes] = await Promise.all([fetch('/api/departments'), fetch('/api/sections')]);
     const dData = await dRes.json();
     const sData = await sRes.json();
-    _populateSelect('rep-dept',    dData.departments||[], '— Select Department —');
+    buildRepDeptMS(dData.departments||[]);
     _populateSelect('rep-section', sData.sections||[],    '— Select Section —');
   }catch(e){}
 }
@@ -4800,7 +4979,7 @@ function repRestoreFamily(family){
 async function previewReplace(){
   const old  = document.getElementById('rep-old').value.trim().toUpperCase();
   const nw   = (document.getElementById('rep-new').value.trim() || old).toUpperCase();
-  const dept = document.getElementById('rep-dept').value;
+  const dept = getRepSelDepts().join(', ');
   const sect = document.getElementById('rep-section').value;
   if(!old){ toast('Enter the item code to search','err'); return; }
 
@@ -4812,9 +4991,10 @@ async function previewReplace(){
   showLoader('Scanning BOM Library', `Searching ${S.flat.length} product files for: ${old}`);
   await new Promise(r => setTimeout(r, 40)); // yield so browser renders the loader before fetch blocks
   try{
+    const selDepts = getRepSelDepts();
     const res = await fetch('/api/replace/preview',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({old_code:old, new_code:nw})
+      body: JSON.stringify({old_code:old, new_code:nw, dept_filters: selDepts})
     });
     const d = await res.json();
     if(d.error){ toast(d.error,'err'); repClearPreview(); return; }
@@ -4937,7 +5117,7 @@ function executeReplace(){
   const nw  = (document.getElementById('rep-new').value.trim() || old).toUpperCase();
   const qty = document.getElementById('rep-qty').value.trim();
   const uom = document.getElementById('rep-uom').value;
-  const dept= document.getElementById('rep-dept').value;
+  const dept= getRepSelDepts().join(', ');
   const sect= document.getElementById('rep-section').value;
   const rsn = document.getElementById('rep-reason').value.trim();
   const apv = document.getElementById('rep-approval').value.trim();
@@ -4982,7 +5162,7 @@ async function confirmedExecuteReplace(){
   const nw  = (document.getElementById('rep-new').value.trim() || old).toUpperCase();
   const qty = document.getElementById('rep-qty').value.trim();
   const uom = document.getElementById('rep-uom').value;
-  const dept= document.getElementById('rep-dept').value;
+  const dept= getRepSelDepts().join(', ');
   const sect= document.getElementById('rep-section').value;
   const rsn = document.getElementById('rep-reason').value.trim();
   const apv = document.getElementById('rep-approval').value.trim();
@@ -5140,7 +5320,11 @@ async function rollback(id){
     });
     await loadSnapshots();
     if(S.activeProd){const bom=S.activeProd.bom_by_sku[S.activeSkuCode||S.activeProd.first_sku]||S.activeProd.components;renderBOMRows(bom);}
-    toast(`Rollback applied — ${snap.old_code} restored in ${d.files_rolled||snap.files} files`,'ok');
+    if(d.rows_rolled === 0){
+      toast(`Rollback marked done but 0 rows were changed — codes may have already been overwritten by a later operation. Contact admin.`,'warn');
+    } else {
+      toast(`Rollback applied — ${snap.old_code} restored in ${d.files_rolled} file${d.files_rolled!==1?'s':''}${d.rows_rolled?' ('+d.rows_rolled+' rows)':''}`, 'ok');
+    }
   }catch(e){
     toast('Rollback error: '+e.message,'err');
   }finally{
@@ -6418,7 +6602,11 @@ async function histRollback(type, id, oldCode, newCode, filesChanged){
       await loadHistory();
       await loadSnapshots();
       if(S.activeProd){const bom=S.activeProd.bom_by_sku[S.activeSkuCode||S.activeProd.first_sku]||S.activeProd.components;renderBOMRows(bom);}
-      toast(`Rollback applied — ${oldCode} restored in ${d.files_rolled||filesChanged} files`,'ok');
+      if(d.rows_rolled === 0){
+        toast(`Rollback marked done but 0 rows were changed — codes may have already been overwritten by a later operation. Contact admin.`,'warn');
+      } else {
+        toast(`Rollback applied — ${oldCode} restored in ${d.files_rolled} file${d.files_rolled!==1?'s':''}${d.rows_rolled?' ('+d.rows_rolled+' rows)':''}`, 'ok');
+      }
     }catch(e){
       toast('Rollback error: '+e.message,'err');
     }finally{

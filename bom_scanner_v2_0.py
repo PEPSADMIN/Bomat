@@ -253,10 +253,8 @@ class BOMScanner:
 
         for row in ws.iter_rows(min_row=2, values_only=True):
             ps = str(row[ps_idx] or '').strip() if ps_idx < len(row) else ''
-            if not ps:
-                continue
-            seen_ps.add(ps)
-            component_count += 1
+            # Collect item_codes from ALL rows — material rows in BP/TUFTING have
+            # empty Bom Code/PS.No but still carry Issue Item codes that must be indexed.
             if issue_idx < len(row) and row[issue_idx]:
                 item_codes.add(str(row[issue_idx]).strip())
             if wh_idx < len(row) and row[wh_idx]:
@@ -267,6 +265,10 @@ class BOMScanner:
                 colours.add(str(row[clr_idx]).strip())
             if acct_idx < len(row) and row[acct_idx]:
                 departments.add(str(row[acct_idx]).strip())
+            if not ps:
+                continue
+            seen_ps.add(ps)
+            component_count += 1
 
         sku_count = len(seen_ps)
         status    = 'ok' if sku_count > 0 else 'err'

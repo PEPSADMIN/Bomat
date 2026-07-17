@@ -99,7 +99,20 @@
       "PowerShell(taskkill /T /F /PID 20752 2>&1)",
       "Bash(taskkill //F //PID 8992)",
       "PowerShell(schtasks /end /tn \"PEPS BOM Tool\" 2>&1)",
-      "Bash(curl -sk -o /dev/null -w \"%{http_code}\" --max-time 5 \"https://localhost:5020/api/health\")"
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\" --max-time 5 \"https://localhost:5020/api/health\")",
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\" --max-time 3 https://localhost:5020/api/health)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('FG:',d['departments']\\)\")",
+      "Bash(curl -sk \"https://localhost:5020/api/departments?category=SFG\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('SFG count:',len\\(d['departments']\\)\\)\")",
+      "PowerShell(Start-Process -FilePath \"taskkill\" -ArgumentList \"/PID 16784 /PID 31096 /F\" -Verb RunAs -Wait -PassThru | Select-Object ExitCode)",
+      "PowerShell(Start-Process -FilePath \"taskkill\" -ArgumentList \"/PID 10232 /F\" -Verb RunAs -Wait -PassThru | Select-Object ExitCode)",
+      "PowerShell(& curl.exe -sk -o NUL -w \"%{http_code}\" --max-time 8 https://localhost:5020/api/health)",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\check_snapshots.py\")",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\rollback_hari.py\")",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\do_rollback.py\")",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\mark_rolled_back.py\")",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\force_rescan_sfg.py\")",
+      "PowerShell(Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c `\"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\\\\run_forever.bat`\"\" -WorkingDirectory \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\" -WindowStyle Normal)"
     ]
   }
 }

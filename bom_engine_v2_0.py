@@ -46,13 +46,14 @@ class BOMEngine:
         ps_idx    = col['Bom Code/PS.No']
         seq_idx   = col.get('PS Seq')
         desc_idx  = col.get('PS Desc.')
+        plan_idx  = col.get('Process Plan')   # → section
         wh_idx    = col.get('Wh Code')
         issue_idx = col.get('Issue Item')
         idesc_idx = col.get('Item Desc')
         uom_idx   = col.get('Uom')
         qty_idx   = col.get('Qty')
-        acct_idx  = col.get('Account Group')
-        clr_idx   = col.get('Colour')
+        acct_idx  = col.get('Account Group')  # → department
+        clr_idx   = col.get('Colour')         # → colour
         stdwh_idx = col.get('Std Wh Code')
 
         def _val(row, idx, default=''):
@@ -61,10 +62,12 @@ class BOMEngine:
             return default
 
         rows = []
+        last_ps = ''
         for row in ws.iter_rows(min_row=2, values_only=True):
             ps = _val(row, ps_idx)
-            if not ps:
-                continue
+            if ps:
+                last_ps = ps
+            effective_ps = ps or last_ps  # material rows carry parent PS.No
             item = _val(row, issue_idx)
             if not item:
                 continue
@@ -74,7 +77,7 @@ class BOMEngine:
                 qty = 0.0
             wh = _val(row, wh_idx) or _val(row, stdwh_idx)
             rows.append({
-                'ps_no':       ps,
+                'ps_no':       effective_ps,
                 'ps_seq':      _val(row, seq_idx),
                 'ps_desc':     _val(row, desc_idx),
                 'item_code':   item,
@@ -83,7 +86,8 @@ class BOMEngine:
                 'uom':         _val(row, uom_idx),
                 'wh_code':     wh,
                 'department':  _val(row, acct_idx),
-                'section':     _val(row, clr_idx),
+                'section':     _val(row, plan_idx),  # Process Plan
+                'colour':      _val(row, clr_idx),   # Colour
             })
         return rows
 

@@ -641,9 +641,11 @@ def _generate_excel_report(product_name: str, bom_rows: list) -> bytes:
         cell.font = hdr_font; cell.fill = hdr_fill
         cell.alignment = Alignment(horizontal='center'); cell.border = border
     for ri, r in enumerate(bom_rows, 2):
-        # Description: prefer ITEM_MASTER lookup, fall back to row keys
         ic   = r.get('item_code','') or r.get('code','')
-        desc = ITEM_MASTER.get(ic,'') or r.get('description','') or r.get('desc','')
+        # For flat SFG rows the xlsx "Item Desc" is the authoritative description;
+        # use ITEM_MASTER only as a fallback when the row carries no description.
+        row_desc = r.get('description','') or r.get('desc','')
+        desc = row_desc or ITEM_MASTER.get(ic,'')
         row_data = [
             r.get('ps_no',''), r.get('ps_seq',''), ic, desc,
             r.get('qty',''), r.get('uom',''), r.get('wh_code','') or r.get('wh',''),
@@ -794,11 +796,21 @@ def api_download_all(product_id):
         if not product:
             return jsonify({'error': 'Not found'}), 404
 
+        dept_raw = body.get('dept', '')
+        if isinstance(dept_raw, list):
+            dept_filters = [d.strip() for d in dept_raw if str(d).strip()]
+        else:
+            dept_filters = [dept_raw.strip()] if str(dept_raw).strip() else []
+
         run_id = db.create_run(product_ids=[product_id], mode='DOWNLOAD_ALL',
                                output_mode='ZIP', run_by='User')
         settings = db.get_settings()
         components, permutations, dest_headers, prebuilt_rows = bom_engine.read_bom_file(product['filepath'])
         bom_rows = prebuilt_rows if prebuilt_rows else bom_engine.generate_bom(components, permutations)
+
+        # For flat SFG reference files: filter by department(s) when requested
+        if dept_filters and prebuilt_rows:
+            bom_rows = [r for r in bom_rows if r.get('department', '') in dept_filters]
 
         # Apply UI edits to ALL SKU rows (same seq = same component across all sizes)
         bom_rows = _apply_edits_all(bom_rows, row_edits)
@@ -1062,6 +1074,7 @@ def api_product_bom(product_id):
                     'desc':       ITEM_MASTER.get(row['item_code'], '') or row.get('description', ''),
                     'department': row.get('department', ''),
                     'section':    row.get('section', ''),
+                    'colour':     row.get('colour', ''),
                     'qty':        row['qty'],
                     'uom':        row['uom'],
                     'wh':         row['wh_code'],
@@ -2695,6 +2708,9 @@ def api_replace_preview():
         return jsonify({'error': 'Item code required'}), 400
     new_code = data.get('new_code', '').strip().upper() or old_code
 
+    dept_raw     = data.get('dept_filters', [])
+    dept_filters = [d.strip() for d in dept_raw if d.strip()] if isinstance(dept_raw, list) else []
+
     all_products = db.get_all_products()
 
     # Extract base code: strip L×W dimensions but KEEP the thickness suffix.
@@ -2752,6 +2768,20 @@ def api_replace_preview():
 
     print(f"[Preview] Phase 1 candidates: {len(candidates)} of {len(all_products)} products")
 
+    # Dept pre-filter: remove products with no overlapping departments
+    if dept_filters:
+        _df_set = set(dept_filters)
+        def _dept_ok(p):
+            raw = (p.get('departments') or '').strip()
+            if not raw: return True  # no dept info → include (safe fallback)
+            try:
+                prod_depts = set(json.loads(raw))   # stored as JSON array
+            except Exception:
+                prod_depts = {d.strip() for d in raw.split(',')}  # fallback: CSV
+            return bool(prod_depts & _df_set)
+        candidates = [p for p in candidates if _dept_ok(p)]
+        print(f"[Preview] dept filter {dept_filters}: {len(candidates)} candidates remain")
+
     # Phase 2 — parallel file scan using ThreadPoolExecutor
     def _scan_one(product):
         try:
@@ -2791,6 +2821,40 @@ def api_replace_preview():
                             'seq': row[0], 'qty': row[6], 'uom': row[5],
                             'wh': row[8] if len(row) > 8 else None,
                         })
+
+            # Flat SFG xlsx (no REF/DATA) — scan Issue Item column
+            if (not found_rows and product['filepath'].lower().endswith('.xlsx') and
+                    'REF' not in wb.sheetnames and 'DATA' not in wb.sheetnames):
+                flat_sheet = next((s for s in wb.sheetnames if s.upper() != 'RULES'), None)
+                if flat_sheet:
+                    ws  = cast(Worksheet, wb[flat_sheet])
+                    hdr = [str(c or '').strip()
+                           for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+                    col_map = {h: i for i, h in enumerate(hdr)}
+                    if 'Bom Code/PS.No' in col_map and 'Issue Item' in col_map:
+                        iidx = col_map['Issue Item']
+                        qidx = col_map.get('Qty')
+                        uidx = col_map.get('Uom')
+                        widx = col_map.get('Wh Code')
+                        sidx = col_map.get('PS Seq')
+                        aidx = col_map.get('Account Group')
+                        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                            if not row or all(v is None for v in row): continue
+                            ic = str(row[iidx] or '').strip().upper() if iidx < len(row) else ''
+                            if not ic or ic.startswith('='): continue
+                            if ic == old_code or (has_dim_suffix and _foam_match(ic)):
+                                if dept_filters and aidx is not None and aidx < len(row):
+                                    row_dept = str(row[aidx] or '').strip()
+                                    if row_dept and row_dept not in dept_filters:
+                                        continue
+                                found_rows.append({
+                                    'sheet': flat_sheet, 'row': row_idx,
+                                    'ic_col': iidx + 1, 'old_ic': ic,
+                                    'seq':  row[sidx] if sidx is not None and sidx < len(row) else None,
+                                    'qty':  row[qidx] if qidx is not None and qidx < len(row) else None,
+                                    'uom':  row[uidx] if uidx is not None and uidx < len(row) else None,
+                                    'wh':   row[widx] if widx is not None and widx < len(row) else None,
+                                })
 
             wb.close()
             if found_rows:
@@ -2844,6 +2908,8 @@ def api_replace_preview_download():
     qty_by_size = data.get('qty_by_size', {})
     dl_format   = data.get('format', 'excel')
     foam_pat    = data.get('foam_pattern', {})
+    dept_raw     = data.get('dept_filters', [])
+    dept_filters = set(d.strip() for d in dept_raw if d.strip()) if isinstance(dept_raw, list) else set()
 
     if not (products_in or product_ids) or not old_code:
         return jsonify({'error': 'products (or product_ids) and old_code required'}), 400
@@ -2929,15 +2995,26 @@ def api_replace_preview_download():
                 r.update({k: v for k, v in RAMCO_CONSTANTS.items() if k not in r})
                 ic = str(r.get('item_code', '')).strip()
                 if _dl_match(ic):
-                    r['item_code'] = _dl_new_code(ic)
-                    if qty_by_size:
-                        mc = str(r.get('ps_no', '') or r.get('mattress_code', ''))
-                        m  = re.search(r'(\d+)[Xx](\d+)[Xx](\d+)', mc)
-                        if m:
-                            # Normalise H: strip leading zero so '06' matches key '6'
-                            key = f"{m.group(1)}x{m.group(2)}x{int(m.group(3))}"
-                            if key in qty_by_size:
-                                r['qty'] = qty_by_size[key]
+                    # Only apply replacement if row's dept matches selected filter
+                    row_dept = str(r.get('department', '') or '').strip()
+                    if dept_filters and row_dept and row_dept not in dept_filters:
+                        pass  # dept mismatch — leave item_code unchanged
+                    else:
+                        r['item_code'] = _dl_new_code(ic)
+                        if qty_by_size:
+                            mc = str(r.get('ps_no', '') or r.get('mattress_code', ''))
+                            m  = re.search(r'(\d+)[Xx](\d+)[Xx](\d+)', mc)
+                            if m:
+                                # Normalise H: strip leading zero so '06' matches key '6'
+                                key = f"{m.group(1)}x{m.group(2)}x{int(m.group(3))}"
+                                if key in qty_by_size:
+                                    r['qty'] = qty_by_size[key]
+
+            # If dept_filters are active, restrict preview to matching rows only
+            if dept_filters:
+                bom_rows = [r for r in bom_rows
+                            if not str(r.get('department', '') or '').strip()
+                            or str(r.get('department', '') or '').strip() in dept_filters]
 
             safe_name = product['name'].replace(' ', '_').replace('/', '_')
             if dl_format == 'excel':
@@ -5007,9 +5084,16 @@ def api_sections():
 
 @app.route('/api/departments')
 def api_departments():
-    """All unique department names from the products table."""
+    """All unique department names from the products table, optionally filtered by category (FG/SFG)."""
+    category = request.args.get('category', '').strip().upper()
     conn = db.get_connection()
-    rows = conn.execute('SELECT departments FROM products WHERE departments IS NOT NULL').fetchall()
+    if category:
+        rows = conn.execute(
+            'SELECT departments FROM products WHERE departments IS NOT NULL AND UPPER(category) = ?',
+            (category,)
+        ).fetchall()
+    else:
+        rows = conn.execute('SELECT departments FROM products WHERE departments IS NOT NULL').fetchall()
     conn.close()
     depts = set()
     for row in rows:
