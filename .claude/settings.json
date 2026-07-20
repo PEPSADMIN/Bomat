@@ -112,7 +112,9 @@
       "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\do_rollback.py\")",
       "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\mark_rolled_back.py\")",
       "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\force_rescan_sfg.py\")",
-      "PowerShell(Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c `\"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\\\\run_forever.bat`\"\" -WorkingDirectory \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\" -WindowStyle Normal)"
+      "PowerShell(Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c `\"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\\\\run_forever.bat`\"\" -WorkingDirectory \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\" -WindowStyle Normal)",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\check_bom_admin.py\")",
+      "PowerShell($env:PYTHONIOENCODING = \"utf-8\"; cd \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\"; .\\\\.venv\\\\Scripts\\\\python.exe \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Hari-JR--DATA-Development-Bom-Tool\\\\18b8a401-3b5e-4456-ba41-161caf0ce96f\\\\scratchpad\\\\verify_bom_admin.py\")"
     ]
   }
 }
