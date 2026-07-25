@@ -3141,12 +3141,14 @@ def api_replace_execute():
                 # No offset change — preserve existing dims exactly
                 return f'{new_prefix}{m.group(2)}X{m.group(3)}X{new_suffix}'
         else:
-            # Foam: DENSITY-PU-FOAM-DIMS-THICKNESS
-            if not oc.startswith(old_prefix + '-PU-FOAM-'): return None
-            dims_part = oc[len(old_prefix + '-PU-FOAM-'):]
+            # Foam: {DENSITY-TYPE-FOAM}-DIMS-THICKNESS  (e.g. 17D-PU-FOAM or 25D-HELIXA-FOAM)
+            # old_prefix is the full prefix including foam type, sent from JS
+            sep = old_prefix + '-'
+            if not oc.startswith(sep): return None
+            dims_part = oc[len(sep):]
             if not dims_part.upper().endswith('X' + old_suffix): return None
             dim_lw = dims_part[:-(len(old_suffix)+1)]
-            return f'{new_prefix}-PU-FOAM-{dim_lw}X{new_suffix}'
+            return f'{new_prefix}-{dim_lw}X{new_suffix}'
 
     if not all([old_code, reason]):
         return jsonify({'error': 'Item code and reason are required'}), 400

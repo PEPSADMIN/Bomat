@@ -3893,6 +3893,58 @@ function repParseFormulaParts(){
         </div>
         ${layerEdit}
       </div>`;
+
+    } else {
+      // ── Pattern C: L*W*k  or  L*W*k*n  (area-based — glue, foam panels, fabric)
+      const mC2 = raw.match(/^L\*W\*([0-9]+(?:\.[0-9]+)?)\*([0-9]+)$/i);
+      const mC1 = raw.match(/^L\*W\*([0-9]+(?:\.[0-9]+)?)$/i);
+      const mC  = mC2 || mC1;
+
+      // ── Pattern D: L*W*H*k  or  L*W*H*k*n  (volume-based — foam fill, coir, latex)
+      const mD2 = !mC && raw.match(/^L\*W\*H\*([0-9]+(?:\.[0-9]+)?)\*([0-9]+)$/i);
+      const mD1 = !mC && raw.match(/^L\*W\*H\*([0-9]+(?:\.[0-9]+)?)$/i);
+      const mD  = mD2 || mD1;
+
+      if(mC || mD){
+        const isVol    = !!mD;
+        const matched  = mC || mD;
+        const m2       = mC ? mC2 : mD2;
+        const baseK    = matched[1];
+        const curLayer = m2 ? matched[2] : '1';
+        const areaLbl  = isVol ? 'L × W × H' : 'L × W';
+        const areaDesc = isVol ? 'Volume (L × W × H)' : 'Area (Length × Width)';
+        const applyFn  = isVol ? `repApplyLWLayer('${baseK}','H')` : `repApplyLWLayer('${baseK}')`;
+
+        const layerBoxHtml = m2 ? `
+            <div class="rep-fbd-op">×</div>
+            <div class="rep-fbd-part rep-fbd-layer-part">
+              <div class="rep-fbd-val rep-fbd-layer-val">${curLayer}</div>
+              <div class="rep-fbd-lbl rep-fbd-layer-lbl">&#11014; LAYER<br>(edit below)</div>
+            </div>` : '';
+
+        html = `<div class="rep-fbd-box">
+          <div class="rep-fbd-title">Formula Structure</div>
+          <div class="rep-fbd-parts">
+            <div class="rep-fbd-part">
+              <div class="rep-fbd-val">${areaLbl}</div>
+              <div class="rep-fbd-lbl">${areaDesc}</div>
+            </div>
+            <div class="rep-fbd-op">×</div>
+            <div class="rep-fbd-part">
+              <div class="rep-fbd-val">${baseK}</div>
+              <div class="rep-fbd-lbl">Consumption Factor</div>
+            </div>
+            ${layerBoxHtml}
+          </div>
+          <div class="rep-fbd-layer-row">
+            <span class="rep-fbd-layer-edit-lbl">Change LAYER to:</span>
+            <input class="rep-fbd-seam-input rep-fbd-layer-input" id="rep-layer-val" type="number"
+                   step="1" min="1" value="${curLayer}">
+            <button type="button" class="rep-fbd-layer-apply-btn" onclick="${applyFn}">Apply</button>
+            <span class="rep-fbd-seam-label rep-fbd-seam-hint">1 = single · 2 = double · 3 = triple application — multiplies consumption factor</span>
+          </div>
+        </div>`;
+      }
     }
   }
 
@@ -3938,6 +3990,17 @@ function repApplySeam(factorStr){
   document.getElementById('rep-formula').value = `(L+W+${seam})*${factorStr}`;
   repParseFormulaParts();
   toast(`Seam allowance updated to +${seam}" — click Calculate to recalculate`,'ok');
+}
+
+function repApplyLWLayer(baseK, hasH){
+  const layers = parseInt(document.getElementById('rep-layer-val').value);
+  if(isNaN(layers) || layers < 1){ toast('Enter a valid layer count','err'); return; }
+  const prefix = hasH ? 'L*W*H' : 'L*W';
+  document.getElementById('rep-formula').value = layers === 1
+    ? `${prefix}*${baseK}`
+    : `${prefix}*${baseK}*${layers}`;
+  repParseFormulaParts();
+  toast(`Layer count set to ${layers} — click Calculate to recalculate`,'ok');
 }
 
 // ── Right panel tab switch ────────────────────────────────────────────────
@@ -4666,24 +4729,32 @@ function repRestoreProduct(idx){
 S._repHeightExcluded = new Set();
 
 // ── DIMENSION CODE PATTERN BUILDER ────────────────────────────────────────
-// Handles: Foam (18D-PU-FOAM-74.50X35.50X10MM) and Spring/Steel (OEBOXBNSR74.50X35.50X130)
+// Handles: Foam (18D-PU-FOAM-74.50X35.50X10MM, 25D-HELIXA-FOAM-71.50X29.50X25MM,
+//          any code/description containing "FOAM") and Spring/Steel (OEBOXBNSR74.50X35.50X130)
 
 function repDetectFoamCode(code){
   const panel = document.getElementById('rep-foam-panel');
   if(!panel) return;
 
-  // Pattern 1 — FOAM:   {DENSITY}-PU-FOAM-{DIM1}X{DIM2}X{THICKNESS}
-  const mFoam = code.match(/^([0-9]+[A-Z]+-PU-FOAM)-([\d.]+)X([\d.]+)X([\d.]+MM?)$/i)
-             || code.match(/^([0-9]+[A-Z])-PU-FOAM-([\d.]+)X([\d.]+)X([\d.]+MM?)$/i);
+  // Pattern 1a — Strict density foam with dims: {DENSITY}-{TYPE}-FOAM-{L}X{W}X{THICK}
+  const mFoam = code.match(/^([0-9]+[A-Z][A-Z0-9-]*-FOAM)-([\d.]+)X([\d.]+)X([\d.]+MM?)$/i)
+
+  // Pattern 1b — Any code ending in -FOAM-{L}X{W}X{THICK} (broader, catches non-density prefixes)
+              || code.match(/^(.+-FOAM)-([\d.]+)X([\d.]+)X([\d.]+MM?)$/i);
 
   // Pattern 2 — SPRING/STEEL full code: {PREFIX}{DIM1}X{DIM2}X{SUFFIX}
   const mSpring = !mFoam && code.match(/^([A-Z]{4,})([\d.]+0?)X([\d.]+0?)X(\d+)$/i);
 
   // Pattern 3 — PREFIX ONLY (letters only, no digits) e.g. OEBOXBNSR
-  // User wants to replace ALL codes starting with this prefix
   const mPrefix = !mFoam && !mSpring && code.match(/^([A-Z]{4,})$/i);
 
-  if(!mFoam && !mSpring && !mPrefix){
+  // Pattern 4 — Code or item description contains the word "FOAM" (catches remaining foam codes
+  //             that don't fit the dimensional pattern above: e.g. just a prefix, or unusual format)
+  const desc = (document.getElementById('rep-desc')?.value || '').trim();
+  const mFoamWord = !mFoam && !mSpring && !mPrefix
+                 && (/FOAM/i.test(code) || /FOAM/i.test(desc));
+
+  if(!mFoam && !mSpring && !mPrefix && !mFoamWord){
     panel.classList.add('rep-foam-hidden');
     const newInput = document.getElementById('rep-new');
     if(newInput){ newInput.readOnly = false; newInput.classList.remove('rep-new-auto'); }
@@ -4691,8 +4762,8 @@ function repDetectFoamCode(code){
     return;
   }
 
-  const isSpring  = !mFoam;
-  const isPrefixMode = !!mPrefix;
+  const isSpring     = !mFoam && !mFoamWord;
+  const isPrefixMode = !!mPrefix || !!mFoamWord;
   const titleEl   = document.getElementById('rep-foam-panel-title');
   const lblPrefix = document.getElementById('fp-lbl-prefix');
   const lblSuffix = document.getElementById('fp-lbl-suffix');
@@ -4703,8 +4774,18 @@ function repDetectFoamCode(code){
     if(titleEl)   titleEl.textContent  = 'New Foam Code — Change parts below';
     if(lblPrefix) lblPrefix.textContent= 'Density';
     if(lblSuffix) lblSuffix.textContent= 'Thickness';
-    if(midSep)    midSep.textContent   = '-PU-FOAM-';
+    // Derive the foam-type separator from the matched prefix (e.g. 17D-PU-FOAM → -PU-FOAM-)
+    if(midSep){
+      const foamType = mFoam[1].replace(/^[0-9]+[A-Z]-?/i, '');
+      midSep.textContent = `-${foamType}-`;
+    }
     S._dimCodeType = 'foam';
+  } else if(mFoamWord){
+    if(titleEl)   titleEl.textContent  = 'Foam Code — Change prefix / thickness below';
+    if(lblPrefix) lblPrefix.textContent= 'Density / Prefix';
+    if(lblSuffix) lblSuffix.textContent= 'Thickness';
+    if(midSep)    midSep.textContent   = '-';
+    S._dimCodeType = 'foam-prefix';
   } else {
     if(titleEl)   titleEl.textContent  = isPrefixMode
       ? 'Prefix Mode — changes ALL codes starting with this prefix'
@@ -4730,14 +4811,18 @@ function repDetectFoamCode(code){
     if(lxLbl)    lxLbl.style.display   = '';
     if(wxLbl)    wxLbl.style.display   = '';
     if(prefixBanner) prefixBanner.classList.remove('rep-foam-hidden');
-    document.getElementById('fp-density').value = mPrefix[1].toUpperCase();
+    // For foam-word mode, use the code itself (or strip trailing dims) as the density prefix
+    let pfxVal = mPrefix ? mPrefix[1].toUpperCase() : code.toUpperCase();
+    // Strip any trailing dimension-like suffix from the code (e.g. -71.5X29.5X10MM)
+    pfxVal = pfxVal.replace(/-[\d.]+X[\d.]+X[\d.]+[A-Z]*$/i, '');
+    document.getElementById('fp-density').value = pfxVal;
     document.getElementById('fp-loff').value    = '-0.5';
     document.getElementById('fp-woff').value    = '-0.5';
     document.getElementById('fp-thick').value   = '';
     // Store initial offsets so delta can be calculated when user changes them
     S._pfxInitLoff = -0.5;
     S._pfxInitWoff = -0.5;
-    S._dimCodeType = 'spring-prefix';
+    S._dimCodeType = mFoamWord ? 'foam-prefix' : 'spring-prefix';
   } else {
     if(offsetArea)   offsetArea.style.display = '';
     if(loffLbl)  loffLbl.style.display = '';
@@ -4810,7 +4895,7 @@ function repFoamLive(){
   const suffix  = document.getElementById('fp-thick').value.trim().toUpperCase();
   const resEl   = document.getElementById('rep-foam-result');
   const codeType  = S._dimCodeType || 'foam';
-  const isPfxMode = codeType === 'spring-prefix';
+  const isPfxMode = codeType === 'spring-prefix' || codeType === 'foam-prefix';
   // Prefix mode only needs prefix + suffix; foam/spring mode needs all four fields
   if(!prefix || !suffix || (!isPfxMode && (!loffStr || !woffStr))){
     if(resEl) resEl.textContent = 'Fill all fields';
@@ -4838,7 +4923,8 @@ function repFoamLive(){
     if(resEl) resEl.textContent = `Example: ${exampleCode}  |  Pattern: {${lDisp}}X{${wDisp}}X${suffix}`;
     const newEl = document.getElementById('rep-new');
     if(newEl){ newEl.value = exampleCode; newEl.placeholder = 'Auto-generated example — edit if needed'; }
-    S._foamPattern = { prefix, loff, woff, old_loff: initLoff, old_woff: initWoff, suffix, isSpring: true, isPrefixMode: true };
+    const isFoamPfx = codeType === 'foam-prefix';
+    S._foamPattern = { prefix, loff, woff, old_loff: initLoff, old_woff: initWoff, suffix, isSpring: !isFoamPfx, isPrefixMode: true };
     return;
   }
 
@@ -4850,7 +4936,7 @@ function repFoamLive(){
     const mS = oldCode.match(/^[A-Z]+([\d.]+0?)X([\d.]+0?)X\d+$/i);
     if(mS){ dim1 = parseFloat(mS[1]); dim2 = parseFloat(mS[2]); }
   } else {
-    const mF = oldCode.match(/[A-Z0-9]+-PU-FOAM-([\d.]+)X([\d.]+)X/i);
+    const mF = oldCode.match(/[0-9]+[A-Z][A-Z0-9-]*-FOAM-([\d.]+)X([\d.]+)X/i);
     if(mF){ dim1 = parseFloat(mF[1]); dim2 = parseFloat(mF[2]); }
   }
 
@@ -4863,7 +4949,7 @@ function repFoamLive(){
     const fmt   = (v) => (String(v).includes('.') && !String(v).endsWith('.00')) ? v.toFixed(2) : String(v);
     const newCode = isSpring
       ? `${prefix}${fmt(newD1)}X${fmt(newD2)}X${suffix}`
-      : `${prefix}-PU-FOAM-${newD1}X${newD2}X${suffix}`;
+      : `${prefix}-${newD1}X${newD2}X${suffix}`;
 
     if(resEl) resEl.textContent = newCode;
     const newEl = document.getElementById('rep-new');
@@ -4885,7 +4971,7 @@ function repFoamPreviewCode(){
 
   // Use the OLD code's dimensions to preview what the NEW code will look like
   const oldCode = document.getElementById('rep-old').value.trim().toUpperCase();
-  const m = oldCode.match(/[A-Z0-9]+-PU-FOAM-([\d.]+)X([\d.]+)X([\d.]+MM?)/i);
+  const m = oldCode.match(/[0-9]+[A-Z][A-Z0-9-]*-FOAM-([\d.]+)X([\d.]+)X([\d.]+MM?)/i);
   if(m){
     const dim1 = parseFloat(m[1]), dim2 = parseFloat(m[2]);
     // Reverse to get original L/W then apply new offsets
@@ -4894,12 +4980,12 @@ function repFoamPreviewCode(){
     const closestW = [30,33,36,39,42,45,48,51,54,57,60,63,66,69,72].reduce((a,b)=>Math.abs(b-dim2)<Math.abs(a-dim2)?b:a);
     const newDim1 = round4(closestL + loff);
     const newDim2 = round4(closestW + woff);
-    const newCode = `${density}-PU-FOAM-${newDim1}X${newDim2}X${thick}`;
+    const newCode = `${density}-${newDim1}X${newDim2}X${thick}`;
     prev.textContent = `New code: ${newCode}`;
     prev.style.color = '#065f46';
   } else {
     // Just show the pattern
-    prev.textContent = `Pattern: ${density}-PU-FOAM-{L${loff>=0?'+':''}${loff}}X{W${woff>=0?'+':''}${woff}}X${thick}`;
+    prev.textContent = `Pattern: ${density}-{L${loff>=0?'+':''}${loff}}X{W${woff>=0?'+':''}${woff}}X${thick}`;
     prev.style.color = '#92400e';
   }
 }
@@ -4916,7 +5002,7 @@ function repFoamApply(){
 
   // For the currently selected size, set the New Item Code
   const oldCode = document.getElementById('rep-old').value.trim().toUpperCase();
-  const m = oldCode.match(/[A-Z0-9]+-PU-FOAM-([\d.]+)X([\d.]+)X([\d.]+MM?)/i);
+  const m = oldCode.match(/[0-9]+[A-Z][A-Z0-9-]*-FOAM-([\d.]+)X([\d.]+)X([\d.]+MM?)/i);
   if(m){
     const dim1 = parseFloat(m[1]), dim2 = parseFloat(m[2]);
     const stdL=[72,75,78,80,84]; const stdW=[30,33,36,39,42,45,48,51,54,57,60,63,66,69,72];
@@ -4924,7 +5010,7 @@ function repFoamApply(){
     const closestW = stdW.reduce((a,b)=>Math.abs(b-dim2)<Math.abs(a-dim2)?b:a);
     const newDim1 = round4(closestL + loff);
     const newDim2 = round4(closestW + woff);
-    const newCode = `${density}-PU-FOAM-${newDim1}X${newDim2}X${thick}`;
+    const newCode = `${density}-${newDim1}X${newDim2}X${thick}`;
     document.getElementById('rep-new').value = newCode;
   }
 
@@ -5192,8 +5278,8 @@ async function confirmedExecuteReplace(){
         isPrefixMode: !!fp.isPrefixMode
       };
     } else {
-      // Foam PU-FOAM codes: density + thickness swap
-      const mOld = old.match(/^([A-Z0-9]+)-PU-FOAM-[\d.X]+X([\d.]+MM?)$/i);
+      // Foam codes: density/type prefix + thickness swap (any foam type: PU-FOAM, HELIXA-FOAM, etc.)
+      const mOld = old.match(/^([0-9]+[A-Z][A-Z0-9-]*-FOAM)-[\d.X]+X([\d.]+MM?)$/i);
       foamPattern = {
         old_density: mOld ? mOld[1].toUpperCase() : '',
         new_density: (fp.density || fp.prefix || '').toUpperCase(),
