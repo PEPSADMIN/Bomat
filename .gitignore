@@ -16,6 +16,9 @@ ssl/*.key
 # Generated output
 output/
 
+# Runtime spec/formula cache (auto-generated, not source)
+spec_cache/
+
 # Python
 .venv/
 __pycache__/
