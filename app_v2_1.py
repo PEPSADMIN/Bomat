@@ -453,7 +453,7 @@ def logout():
 @app.before_request
 def require_login():
     """Block unauthenticated access to every route except /login and /logout."""
-    public = {'login_page', 'logout', 'static', 'api_health'}
+    public = {'login_page', 'logout', 'static', 'api_health', 'api_colour_master'}
     if request.endpoint in public:
         return None
     if not session.get('user_id'):
@@ -5045,6 +5045,37 @@ def api_notifications_read():
     return jsonify({'success': True})
 
 # ============================================================================
+# COLOUR MASTER API
+# ============================================================================
+
+COLOUR_MASTER_PATH = r'D:\Hari JR. DATA\BOM\Automation\Colour Master\Colour_Master.xlsx'
+
+@app.route('/api/colour-master')
+def api_colour_master():
+    """Read Colour_Master.xlsx and return {FG:[{code,name},...], SFG:[...]}."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(COLOUR_MASTER_PATH, read_only=True, data_only=True)
+        result = {}
+        for sheet in wb.sheetnames:
+            ws = wb[sheet]
+            seen = {}
+            for i, row in enumerate(ws.iter_rows(values_only=True)):
+                if i == 0:
+                    continue  # skip header row
+                code = str(row[0]).strip() if row[0] else ''
+                name = str(row[1]).strip() if row[1] else ''
+                if code and name and code not in seen:
+                    seen[code] = name
+            result[sheet] = [{'code': k, 'name': v} for k, v in seen.items()]
+        wb.close()
+        return jsonify(result)
+    except FileNotFoundError:
+        return jsonify({'error': 'Colour_Master.xlsx not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # HISTORY API (updated — includes replace snapshots + approvals)
 # ============================================================================
 
