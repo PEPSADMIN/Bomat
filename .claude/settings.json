@@ -121,7 +121,8 @@
       "PowerShell(schtasks /query /fo LIST /v /tn \"PEPS BOM Watchdog\" 2>&1)",
       "PowerShell(schtasks /query /fo LIST /v /tn \"BOMAT_Server\" 2>&1)",
       "PowerShell(New-Item -ItemType Directory -Path \"D:\\\\Hari JR. DATA\\\\Development\\\\Bom Tool\\\\docs\\\\screenshots\" -Force)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "PowerShell(Get-Process python)"
     ]
   }
 }
