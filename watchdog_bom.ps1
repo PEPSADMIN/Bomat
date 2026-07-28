@@ -51,6 +51,19 @@ if (Test-Health) {
 # not a task that exits in seconds.
 Write-Log "Server NOT responding - recovering..."
 
+# Kill any python.exe holding port 5020 (by port, not just by command line,
+# because zombie processes have a blank CommandLine and would be missed otherwise)
+$portPids = @()
+netstat -ano | Select-String ":5020\s" | ForEach-Object {
+    $parts = ($_.Line -split '\s+').Where({ $_ -ne '' })
+    if ($parts.Count -ge 5) { $portPids += [int]$parts[-1] }
+}
+foreach ($p in ($portPids | Sort-Object -Unique)) {
+    Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+    Write-Log "Killed PID $p (held port 5020)"
+}
+
+# Also kill any named BOM python process
 $zombies = Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq "python.exe" -and $_.CommandLine -like '*app_v2_1.py*'
 }

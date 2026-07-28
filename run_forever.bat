@@ -3,13 +3,13 @@ title PEPS BOM Tool - Live Server
 color 0A
 cd /d "D:\Hari JR. DATA\Development\Bom Tool"
 
-REM Only one instance should run. If port 5020 is already listening, exit.
-netstat -ano | findstr ":5020.*LISTENING" >nul 2>&1
-if %errorlevel% == 0 (
-    echo [%date% %time%] Port 5020 already in use -- another instance is running. Exiting.
-    echo [%date% %time%] Duplicate run_forever exited - port already in use. >> server_loop.log
-    exit /b 0
+REM Kill any zombie process holding port 5020 before starting
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":5020.*LISTENING"') do (
+    echo [%date% %time%] Killing zombie PID %%p on port 5020...
+    echo [%date% %time%] Killing zombie PID %%p on port 5020... >> server_loop.log
+    taskkill /F /PID %%p >nul 2>&1
 )
+timeout /t 3 /nobreak >nul
 
 :loop
 echo.
