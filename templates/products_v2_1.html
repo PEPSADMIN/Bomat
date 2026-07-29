@@ -4820,12 +4820,14 @@ function repDetectFoamCode(code){
     if(prefixBanner) prefixBanner.classList.remove('rep-foam-hidden');
     // For foam-word mode, use the code itself (or strip trailing dims) as the density prefix
     let pfxVal = mPrefix ? mPrefix[1].toUpperCase() : code.toUpperCase();
-    // Strip any trailing dimension-like suffix from the code (e.g. -71.5X29.5X10MM)
-    pfxVal = pfxVal.replace(/-[\d.]+X[\d.]+X[\d.]+[A-Z]*$/i, '');
+    // Strip trailing dimension suffix — handles both 2D (-82X10MM) and 3D (-74.5X35.5X10MM) codes
+    pfxVal = pfxVal.replace(/-[\d.]+X[\d.]+(?:X[\d.]+)?[A-Z]*$/i, '');
     document.getElementById('fp-density').value = pfxVal;
     document.getElementById('fp-loff').value    = '-0.5';
     document.getElementById('fp-woff').value    = '-0.5';
-    document.getElementById('fp-thick').value   = '';
+    // Auto-fill thickness from end of code (e.g. X10MM, X25MM) for 2D foam codes
+    const _thickM = code.match(/X([\d.]+MM?)$/i);
+    document.getElementById('fp-thick').value   = _thickM ? _thickM[1].toUpperCase() : '';
     // Store initial offsets so delta can be calculated when user changes them
     S._pfxInitLoff = -0.5;
     S._pfxInitWoff = -0.5;

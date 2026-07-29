@@ -1150,7 +1150,7 @@ def api_product_bom(product_id):
         # Show ALL rows by default; put the Bom Code in the seq (# column)
         # so every group is identifiable in the one combined view.
         if skus and not heights and not colours and all(
-                not s.get('L') and not s.get('H') for s in skus):
+                not s.get('H') for s in skus):
             flat_all = []
             for s in skus:
                 for r in bom_by_sku.get(s['code'], []):
@@ -3213,7 +3213,12 @@ def api_replace_execute():
                     old_ic = str(row_info.get('old_ic', '')).strip().upper()
                 # For foam bulk replace: generate per-row new code from pattern
                 if foam_pat:
-                    row_new_code = _gen_foam_code(old_ic, foam_pat) or new_code
+                    _pat = foam_pat
+                    # Prefix mode without old_density: fill from exec_base_foam/exec_thick_sfx
+                    if _pat.get('isPrefixMode') and not _pat.get('old_density') and not _pat.get('isSpring'):
+                        _pat = {**_pat, 'old_density': exec_base_foam,
+                                'old_thick': exec_thick_sfx.lstrip('X') if exec_thick_sfx else ''}
+                    row_new_code = _gen_foam_code(old_ic, _pat) or new_code
                 else:
                     row_new_code = new_code
                 _match = (old_ic == old_code) or ((has_dim_suffix or is_spring_code) and _foam_match(old_ic))
