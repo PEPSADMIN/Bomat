@@ -2994,7 +2994,13 @@ function renderDetail(prod){
   setOpts('df-dim',dims,v=>v,'All Sizes');
   // Component-level filters — reset values so stale selections don't hide rows
   buildDeptMS(prod.departments||[]);
-  resetDeptMS();
+  if(!prod.first_sku && (prod.departments||[]).length){
+    // Flat SFG (Tufting, Quilting, BP): pre-select all departments so all rows show by default
+    document.querySelectorAll('#ms-dept-panel input[type=checkbox]').forEach(cb=>cb.checked=true);
+    _updateDeptBtn();
+  } else {
+    resetDeptMS();
+  }
   setOpts('df-section',prod.sections||[],    v=>v, 'All Sections');
   const whList=[...new Set([...(prod.wh_codes||[]),'CBEFG'])].sort();
   setOpts('df-wh', whList, v=>v.replace(/^CBE/,''), 'All WH Codes');
@@ -3187,6 +3193,13 @@ function filterBOMRows(){
       singleBtn.disabled=true;
       S._selDepts=[];
       infoEl.textContent='Select Department(s) to download a filtered set';
+      // Flat SFG with no dept selected: show placeholder to avoid rendering thousands of rows
+      const tbody=document.getElementById('bom-tbody');
+      tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--ink3);font-size:13px">
+        ▲ Select one or more Departments above to view BOM components (${comps.length} total rows across all departments)
+      </td></tr>`;
+      document.getElementById('sku-match-count').textContent=`${comps.length} rows — select a Department to filter`;
+      return;
     }
   }
   const tbody=document.getElementById('bom-tbody');
@@ -3218,6 +3231,10 @@ function filterBOMRows(){
       <td><button class="edit-btn" onclick="openEditModal(${origIdx})">Edit</button></td>
     </tr>`;
   }).join('');
+  if(S._isFlatSFG && deptArr.length){
+    const label=deptArr.length===1?deptArr[0]:`${deptArr.length} Depts`;
+    document.getElementById('sku-match-count').textContent=`Showing: ${label} (${shown.length} rows)`;
+  }
 }
 
 function renderSKUMatrix(skus){
@@ -4860,9 +4877,7 @@ function repDetectFoamCode(code){
   const fbody = document.getElementById('rep-foam-body');
   const farrow = document.getElementById('rep-foam-arrow');
   if(fbody && !fbody.classList.contains('open')){ fbody.classList.add('open'); farrow.classList.add('open'); }
-  // Make New Item Code read-only (auto-filled by foam live update)
-  const newInput = document.getElementById('rep-new');
-  if(newInput){ newInput.readOnly = true; newInput.classList.add('rep-new-auto'); }
+  // Auto-fill New Item Code from pattern but keep editable so user can tweak it
   repFoamLive();
 }
 
