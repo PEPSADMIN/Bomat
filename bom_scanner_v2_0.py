@@ -244,7 +244,7 @@ class BOMScanner:
         ps_idx    = col.get('Bom Code/PS.No', 0)
         wh_idx    = col.get('Wh Code', 3)
         issue_idx = col.get('Issue Item', 5)
-        clr_idx   = col.get('Colour', 10)
+        clr_idx   = col.get('Colour')        # None when column absent — avoids reading Qty as colour
         acct_idx  = col.get('Account Group', 9)
         stdwh_idx = col.get('Std Wh Code', 11)
 
@@ -261,7 +261,7 @@ class BOMScanner:
                 wh_codes.add(str(row[wh_idx]).strip())
             if stdwh_idx < len(row) and row[stdwh_idx]:
                 wh_codes.add(str(row[stdwh_idx]).strip())
-            if clr_idx < len(row) and row[clr_idx]:
+            if clr_idx is not None and clr_idx < len(row) and row[clr_idx]:
                 colours.add(str(row[clr_idx]).strip())
             if acct_idx < len(row) and row[acct_idx]:
                 departments.add(str(row[acct_idx]).strip())
