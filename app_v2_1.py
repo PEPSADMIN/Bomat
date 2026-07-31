@@ -5638,10 +5638,13 @@ if __name__ == '__main__':
     # process already owns port 5020, exit with code 99 so run_forever.bat
     # knows this is NOT a crash (no restart needed right now).
     import socket as _socket_check
-    _probe = _socket_check.socket(_socket_check.AF_INET, _socket_check.SOCK_STREAM)
-    _probe.settimeout(1)
-    _port_busy = (_probe.connect_ex(('127.0.0.1', config.APP_PORT)) == 0)
-    _probe.close()
+    _port_busy = False
+    try:
+        _probe = _socket_check.create_connection(('127.0.0.1', config.APP_PORT), timeout=2)
+        _probe.close()
+        _port_busy = True
+    except OSError:
+        pass  # Port is free
     if _port_busy:
         print(f"\n[BOM Tool] Port {config.APP_PORT} is already in use — "
               "another server instance is running.")
