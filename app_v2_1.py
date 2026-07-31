@@ -5633,6 +5633,23 @@ if __name__ == '__main__':
     # fact is a known-fragile hack that breaks under real network conditions:
     # the underlying event loop doesn't understand SSL's WantRead/WantWrite
     # retry semantics, causing intermittent hangs/drops for remote clients).
+    # ── PORT-IN-USE GUARD ────────────────────────────────────────────────────
+    # Check before cheroot even tries to bind.  If another healthy BOM Tool
+    # process already owns port 5020, exit with code 99 so run_forever.bat
+    # knows this is NOT a crash (no restart needed right now).
+    import socket as _socket_check
+    _probe = _socket_check.socket(_socket_check.AF_INET, _socket_check.SOCK_STREAM)
+    _probe.settimeout(1)
+    _port_busy = (_probe.connect_ex(('127.0.0.1', config.APP_PORT)) == 0)
+    _probe.close()
+    if _port_busy:
+        print(f"\n[BOM Tool] Port {config.APP_PORT} is already in use — "
+              "another server instance is running.")
+        print("[BOM Tool] Exiting cleanly (code 99). "
+              "run_forever.bat will retry in 60 s.\n")
+        import sys as _sys_99; _sys_99.exit(99)
+    # ─────────────────────────────────────────────────────────────────────────
+
     from cheroot.wsgi import Server as _CherootServer
 
     _server = _CherootServer((config.APP_HOST, config.APP_PORT), app, numthreads=8)
