@@ -331,6 +331,14 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
 .flex{display:flex}.flex-1{flex:1}.gap-2{gap:8px}.gap-3{gap:12px}.items-center{align-items:center}
 .mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mt-5{margin-top:20px}.mt-6{margin-top:28px}
 .mb-3{margin-bottom:14px}.card-sub-mb{margin-bottom:14px}
+.ecom-row{align-items:center;gap:12px}
+.ecom-label{display:flex;align-items:center;gap:8px;cursor:pointer;margin:0}
+.ecom-cb{width:16px;height:16px;cursor:pointer}
+.ecom-label-text{font-weight:500}
+.ecom-sfx-wrap{display:none;align-items:center;gap:6px}
+.ecom-sfx-lbl{color:var(--ink3);font-size:12px}
+.ecom-sfx-input{width:120px}
+.ecom-note{display:none;font-size:11px;color:var(--ink3)}
 .spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .section-hdr{font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
@@ -1349,8 +1357,8 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
                   <div class="rep-foam-sep" id="fp-mid-sep"></div>
                   <span id="fp-offset-area" class="rep-foam-parts-inline">
                     <input id="fp-loff" class="rep-foam-input mono" placeholder="-0.5" oninput="repFoamLive()" title="L offset">
-                    <span class="rep-foam-sep">X</span>
-                    <input id="fp-woff" class="rep-foam-input mono" placeholder="-0.5" oninput="repFoamLive()" title="W offset">
+                    <span id="fp-woff-grp" class="rep-foam-parts-inline"><span class="rep-foam-sep">X</span>
+                    <input id="fp-woff" class="rep-foam-input mono" placeholder="-0.5" oninput="repFoamLive()" title="W offset"></span>
                     <span class="rep-foam-sep">X</span>
                   </span>
                   <input id="fp-thick" class="rep-foam-input mono" placeholder="130" oninput="repFoamLive()" title="Height suffix (spring) or Thickness (foam)">
@@ -1771,6 +1779,17 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;font-size
           <div class="form-group mt-2">
             <label>PS Description (auto-generated — edit if needed)</label>
             <input id="w-psdesc" placeholder="Will be generated from product name + dimensions" class="mono">
+          </div>
+          <div class="form-row mt-2 ecom-row">
+            <label class="ecom-label">
+              <input type="checkbox" id="w-ecom" class="ecom-cb" onchange="toggleEcomSuffix()">
+              <span class="ecom-label-text">E-commerce Variant</span>
+            </label>
+            <div id="w-ecom-sfx-wrap" class="ecom-sfx-wrap">
+              <span class="ecom-sfx-lbl">Suffix:</span>
+              <input id="w-ecom-sfx" value="-Ecom" class="mono ecom-sfx-input" oninput="renderSizeRows()" placeholder="-Ecom">
+            </div>
+            <span id="w-ecom-note" class="ecom-note">Applied to all item codes</span>
           </div>
           <div class="flex gap-2 mt-3">
             <button class="btn btn-ghost" onclick="goWStep(2)">← Back</button>
@@ -4772,13 +4791,18 @@ function repDetectFoamCode(code){
   // Pattern 3 — PREFIX ONLY (letters only, no digits) e.g. OEBOXBNSR
   const mPrefix = !mFoam && !mSpring && code.match(/^([A-Z]{4,})$/i);
 
+  // Pattern 1c — SFG 2D foam code: {prefix}-FOAM-{dim}X{suffix}
+  // suffix can be single (10MM) or multi-part (155MMX75MM) — capture everything after first dim
+  const mFoam2D = !mFoam && !mSpring && !mPrefix
+               && code.match(/^(.+-FOAM)-([\d.]+)X([\d.]+[A-Z]*(?:X[\d.]+[A-Z]*)?)$/i);
+
   // Pattern 4 — Code or item description contains the word "FOAM" (catches remaining foam codes
   //             that don't fit the dimensional pattern above: e.g. just a prefix, or unusual format)
   const desc = (document.getElementById('rep-desc')?.value || '').trim();
-  const mFoamWord = !mFoam && !mSpring && !mPrefix
+  const mFoamWord = !mFoam && !mSpring && !mPrefix && !mFoam2D
                  && (/FOAM/i.test(code) || /FOAM/i.test(desc));
 
-  if(!mFoam && !mSpring && !mPrefix && !mFoamWord){
+  if(!mFoam && !mSpring && !mPrefix && !mFoam2D && !mFoamWord){
     panel.classList.add('rep-foam-hidden');
     const newInput = document.getElementById('rep-new');
     if(newInput){ newInput.readOnly = false; newInput.classList.remove('rep-new-auto'); }
@@ -4786,7 +4810,7 @@ function repDetectFoamCode(code){
     return;
   }
 
-  const isSpring     = !mFoam && !mFoamWord;
+  const isSpring     = !mFoam && !mFoam2D && !mFoamWord;
   const isPrefixMode = !!mPrefix || !!mFoamWord;
   const titleEl   = document.getElementById('rep-foam-panel-title');
   const lblPrefix = document.getElementById('fp-lbl-prefix');
@@ -4804,6 +4828,12 @@ function repDetectFoamCode(code){
       midSep.textContent = `-${foamType}-`;
     }
     S._dimCodeType = 'foam';
+  } else if(mFoam2D){
+    if(titleEl)   titleEl.textContent  = 'New SFG Foam Code (2D) — Change parts below';
+    if(lblPrefix) lblPrefix.textContent= 'Density';
+    if(lblSuffix) lblSuffix.textContent= 'Thickness';
+    if(midSep)    midSep.textContent   = '-';
+    S._dimCodeType = 'foam-2d';
   } else if(mFoamWord){
     if(titleEl)   titleEl.textContent  = 'Foam Code — Change prefix / thickness below';
     if(lblPrefix) lblPrefix.textContent= 'Density / Prefix';
@@ -4828,12 +4858,32 @@ function repDetectFoamCode(code){
   const lxLbl    = document.getElementById('fp-lbl-lx');
   const wxLbl    = document.getElementById('fp-lbl-wx');
 
-  if(isPrefixMode){
+  const woffGrp = document.getElementById('fp-woff-grp');
+  if(mFoam2D){
+    // 2D SFG foam — no width dimension, only L and Thickness
+    if(offsetArea)   offsetArea.style.display = '';
+    if(loffLbl)   loffLbl.style.display   = '';
+    if(woffLbl)   woffLbl.style.display   = 'none';
+    if(lxLbl)     lxLbl.style.display     = 'none';
+    if(wxLbl)     wxLbl.style.display     = 'none';
+    if(woffGrp)   woffGrp.style.display   = 'none';
+    if(prefixBanner) prefixBanner.classList.add('rep-foam-hidden');
+    const d1 = parseFloat(mFoam2D[2]);
+    const stdL=[60,66,72,75,78,80,84];
+    const closestL = stdL.reduce((a,b)=>Math.abs(b-d1)<Math.abs(a-d1)?b:a);
+    const raw_loff = round4(d1 - closestL);  // negative if foam < std
+    document.getElementById('fp-density').value = mFoam2D[1].toUpperCase();
+    document.getElementById('fp-loff').value    = String(raw_loff);
+    document.getElementById('fp-woff').value    = '0';
+    document.getElementById('fp-thick').value   = mFoam2D[3].toUpperCase();
+    S._pfxInitLoff = raw_loff;
+  } else if(isPrefixMode){
     if(offsetArea)   offsetArea.style.display = '';
     if(loffLbl)  loffLbl.style.display = '';
     if(woffLbl)  woffLbl.style.display = '';
     if(lxLbl)    lxLbl.style.display   = '';
     if(wxLbl)    wxLbl.style.display   = '';
+    if(woffGrp)  woffGrp.style.display = '';
     if(prefixBanner) prefixBanner.classList.remove('rep-foam-hidden');
     // For foam-word mode, use the code itself (or strip trailing dims) as the density prefix
     let pfxVal = mPrefix ? mPrefix[1].toUpperCase() : code.toUpperCase();
@@ -4855,6 +4905,7 @@ function repDetectFoamCode(code){
     if(woffLbl)  woffLbl.style.display = '';
     if(lxLbl)    lxLbl.style.display   = '';
     if(wxLbl)    wxLbl.style.display   = '';
+    if(woffGrp)  woffGrp.style.display = '';
     if(prefixBanner) prefixBanner.classList.add('rep-foam-hidden');
     const m = mFoam || mSpring;
     const [_, prefix, dim1, dim2, suffix] = m;
@@ -4921,7 +4972,7 @@ function repFoamLive(){
   const codeType  = S._dimCodeType || 'foam';
   const isPfxMode = codeType === 'spring-prefix' || codeType === 'foam-prefix';
   // Prefix mode only needs prefix + suffix; foam/spring mode needs all four fields
-  if(!prefix || !suffix || (!isPfxMode && (!loffStr || !woffStr))){
+  if(!prefix || !suffix || (!isPfxMode && codeType !== 'foam-2d' && (!loffStr || !woffStr))){
     if(resEl) resEl.textContent = 'Fill all fields';
     return;
   }
@@ -4929,6 +4980,23 @@ function repFoamLive(){
   const loff = parseFloat(loffStr) || 0;
   const woff = parseFloat(woffStr) || 0;
   const oldCode = document.getElementById('rep-old').value.trim().toUpperCase();
+
+  if(codeType === 'foam-2d'){
+    const mF = oldCode.match(/^.+-FOAM-([\d.]+)X/i);
+    if(mF){
+      const dim1 = parseFloat(mF[1]);
+      const stdL=[60,66,72,75,78,80,84];
+      const closestL = stdL.reduce((a,b)=>Math.abs(b-dim1)<Math.abs(a-dim1)?b:a);
+      const newL = round4(closestL + loff);
+      const fmt = v => (String(v).includes('.') && !String(v).endsWith('.00')) ? v.toFixed(2) : String(v);
+      const newCode = `${prefix}-${fmt(newL)}X${suffix}`;
+      if(resEl) resEl.textContent = newCode;
+      const newEl = document.getElementById('rep-new');
+      if(newEl){ newEl.value = newCode; newEl.placeholder = 'Auto-generated above'; }
+      S._foamPattern = { density: prefix, loff, suffix, isFoam2D: true };
+    }
+    return;
+  }
 
   if(isPfxMode){
     const initLoff = S._pfxInitLoff != null ? S._pfxInitLoff : -0.5;
@@ -5300,6 +5368,16 @@ async function confirmedExecuteReplace(){
         old_woff:  fp.old_woff != null ? fp.old_woff : fp.woff,
         isSpring:     true,
         isPrefixMode: !!fp.isPrefixMode
+      };
+    } else if(fp.isFoam2D){
+      // 2D SFG foam: {density}-FOAM-{dim}X{suffix} — suffix can be 10MM or 155MMX75MM
+      const mOld = old.match(/^(.+-FOAM)-([\d.]+)X([\d.]+[A-Z]*(?:X[\d.]+[A-Z]*)?)$/i);
+      foamPattern = {
+        old_density: mOld ? mOld[1].toUpperCase() : '',
+        new_density: (fp.density || '').toUpperCase(),
+        old_thick:   mOld ? mOld[3].toUpperCase() : '',
+        new_thick:   (fp.suffix  || '').toUpperCase(),
+        isFoam2D: true
       };
     } else {
       // Foam codes: density/type prefix + thickness swap (any foam type: PU-FOAM, HELIXA-FOAM, etc.)
@@ -5981,6 +6059,23 @@ function populateColourDatalist(priorityColours){
 }
 
 function updatePSDescPreview(){const name=document.getElementById('w-pname').value.trim();if(name)document.getElementById('w-psdesc').placeholder=`${name} Beige 72X36X06  (colour & size auto per row)`;}
+function toggleEcomSuffix(){
+  const cb = document.getElementById('w-ecom');
+  const wrap = document.getElementById('w-ecom-sfx-wrap');
+  const note = document.getElementById('w-ecom-note');
+  if(cb.checked){
+    wrap.style.display = 'flex';
+    note.style.display = '';
+    S.ecomSuffix = document.getElementById('w-ecom-sfx').value || '-Ecom';
+  } else {
+    wrap.style.display = 'none';
+    note.style.display = 'none';
+    S.ecomSuffix = '';
+  }
+  renderSizeRows();
+}
+// Sync ecomSuffix when user types in the suffix field
+document.addEventListener('input', function(e){ if(e.target.id==='w-ecom-sfx'){ S.ecomSuffix = e.target.value; renderSizeRows(); } });
 function addSizeRow(){
   const l=document.getElementById('sm-l').value.trim(),w=document.getElementById('sm-w').value.trim(),h=document.getElementById('sm-h').value,c=document.getElementById('sm-clr').value.trim();
   if(!l||!w||!h||!c){toast('Fill all size fields','err');return;}
@@ -6006,7 +6101,9 @@ function renderSizeRows(){
     const hPad=String(r.h).padStart(2,'0');
     const desc=cn?`${pname} ${cn} ${r.l}X${r.w}X${hPad}`:`${pname} ${r.l}X${r.w}X${hPad}`;
     const clrLabel=cn&&cn!==r.c?`${r.c} <span style="color:var(--ink3);font-size:10px">(${cn})</span>`:r.c;
-    return `<tr><td class="mono">${r.l}${unitSfx}</td><td class="mono">${r.w}${unitSfx}</td><td class="mono">${r.h}${unitSfx}</td><td>${clrLabel}</td><td class="mono" style="font-size:11px">${code} ${warn}</td><td style="font-size:11px;color:var(--ink2)">${desc}</td><td><button onclick="S.sizeRows.splice(${i},1);renderSizeRows()" style="background:none;border:none;cursor:pointer;color:var(--ink3)">✕</button></td></tr>`;
+    const ecomSfx = S.ecomSuffix || '';
+    const displayCode = code + ecomSfx;
+    return `<tr><td class="mono">${r.l}${unitSfx}</td><td class="mono">${r.w}${unitSfx}</td><td class="mono">${r.h}${unitSfx}</td><td>${clrLabel}</td><td class="mono" style="font-size:11px">${displayCode} ${warn}</td><td style="font-size:11px;color:var(--ink2)">${desc}</td><td><button onclick="S.sizeRows.splice(${i},1);renderSizeRows()" style="background:none;border:none;cursor:pointer;color:var(--ink3)">✕</button></td></tr>`;
   }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--ink3);padding:12px">No sizes added yet</td></tr>';
 }
 function addCompRow(){S.compRows.push({code:'',desc:'',qty:'',uom:'NOS',wh:'CBEWIP'});renderCompRows();}
@@ -6100,6 +6197,7 @@ async function generateNewProduct(){
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({product_name,prefix,wh_code,ps_desc,approval_ref,run_by,
+        ecom_suffix: S.ecomSuffix || '',
         sizes:sizesPayload,components:S.compRows})
     });
     const d=await res.json();

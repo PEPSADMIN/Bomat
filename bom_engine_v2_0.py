@@ -419,7 +419,8 @@ class BOMEngine:
     
     def generate_new_product_bom(self, product_name: str, prefix: str,
                                  wh_code: str, ps_desc: str, sizes: List[Dict],
-                                 components: List[Dict], constants: Dict) -> List[Dict]:
+                                 components: List[Dict], constants: Dict,
+                                 ecom_suffix: str = '') -> List[Dict]:
         """
         Generate BOM for new product from wizard input.
         
@@ -450,7 +451,7 @@ class BOMEngine:
             colour = str(size.get('c', '')).strip()
 
             # Build parent item code: {base_prefix}{colour}{L}X{W}X{H_padded}  (no hyphen)
-            parent_code = f"{_base_prefix}{colour}{L}X{W}X{H_padded}"
+            parent_code = f"{_base_prefix}{colour}{L}X{W}X{H_padded}{ecom_suffix}"
 
             # Generate PS Description if not provided
             H_str = str(size['h'])

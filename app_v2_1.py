@@ -1265,8 +1265,10 @@ def api_item_formula():
     if not code:
         return jsonify({'formula':'', 'pattern':'', 'factor':0, 'samples':[]})
 
-    # Extract base for dimension-specific codes
-    _dim_re = re.compile(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm|CM|cm)?$')
+    # Extract base for dimension-specific codes. Matches 2-4 X-separated dim
+    # tokens, each with an optional unit — covers plain L×W×H, single-unit foam
+    # (…-10MM), and compound-suffix 2D foam (…-66X155MMX75MM).
+    _dim_re = re.compile(r'-[\d.]+(?:MM|mm|CM|cm)?(?:[Xx][\d.]+(?:MM|mm|CM|cm)?){1,3}$')
     base_code_fm = _dim_re.sub('', code)
     has_dim_fm   = (base_code_fm != code)
 
@@ -2717,7 +2719,7 @@ def api_replace_preview():
     # 18D-PU-FOAM-83.50X71.50X10MM → base='18D-PU-FOAM', thick_sfx='X10MM'
     # This prevents 18D-PU-FOAM-74.50X35.50X25MM (25MM) matching a search for
     # 18D-PU-FOAM-74.50X35.50X10MM (10MM). Thickness MUST match.
-    _dim_suffix = re.compile(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm|CM|cm)?$')
+    _dim_suffix = re.compile(r'-[\d.]+(?:MM|mm|CM|cm)?(?:[Xx][\d.]+(?:MM|mm|CM|cm)?){1,3}$')
     base_code     = _dim_suffix.sub('', old_code)
     has_dim_suffix = (base_code != old_code)
     _thick_m  = re.search(r'[Xx]([\d.]+(?:MM|mm|CM|cm))$', old_code)
@@ -2949,7 +2951,7 @@ def api_replace_preview_download():
     if _dl_pfx_only:
         dl_thick_sfx = ''
     # Base of old_code after stripping any dimension suffix (e.g. '18D-PU-FOAM' from '18D-PU-FOAM-74X35X10MM')
-    _dl_dim_re = re.compile(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm|CM|cm)?$')
+    _dl_dim_re = re.compile(r'-[\d.]+(?:MM|mm|CM|cm)?(?:[Xx][\d.]+(?:MM|mm|CM|cm)?){1,3}$')
     dl_base    = _dl_dim_re.sub('', old_code)
     dl_has_dim = (dl_base != old_code)   # True only when old_code itself has a dimension suffix
 
@@ -3073,7 +3075,7 @@ def api_replace_execute():
     foam_pat = data.get('foam_pattern', {})  # {old_density, new_density, old_thick, new_thick}
 
     # Base+suffix matching for dimension-embedded codes (foam AND spring/steel)
-    _exec_dim_re  = re.compile(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm|CM|cm)?$')
+    _exec_dim_re  = re.compile(r'-[\d.]+(?:MM|mm|CM|cm)?(?:[Xx][\d.]+(?:MM|mm|CM|cm)?){1,3}$')
     exec_base_foam = _exec_dim_re.sub('', old_code)   # for foam: strips -DIM1xDIM2xTHICK
     has_dim_suffix = (exec_base_foam != old_code)
 
@@ -3434,8 +3436,8 @@ def api_snapshot_download(snap_id):
                 # Derive new code: if foam pattern, generate per-row; else use snap new_code
                 _tp = re.search(r'[Xx]([\d.]+(?:MM|mm))$', old_code)
                 _ts = ('X'+_tp.group(1).upper()) if _tp else ''
-                _tb = re.sub(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm)?$','',old_code)
-                _tb2= re.sub(r'-[\d.]+[Xx][\d.]+(?:[Xx][\d.]+)?(?:MM|mm)?$','',new_code)
+                _tb = re.sub(r'-[\d.]+(?:MM|mm)?(?:[Xx][\d.]+(?:MM|mm)?){1,3}$','',old_code)
+                _tb2= re.sub(r'-[\d.]+(?:MM|mm)?(?:[Xx][\d.]+(?:MM|mm)?){1,3}$','',new_code)
                 _tp2= re.search(r'[Xx]([\d.]+(?:MM|mm))$', new_code)
                 _ts2= ('X'+_tp2.group(1).upper()) if _tp2 else ''
                 if old_ic_snap.startswith(_tb+'-') and _ts and old_ic_snap.endswith(_ts):
@@ -4089,6 +4091,7 @@ def api_newproduct_generate():
     sizes = data.get('sizes', [])
     components = data.get('components', [])
     run_by = data.get('run_by', '').strip()
+    ecom_suffix = data.get('ecom_suffix', '').strip()
     
     if not all([product_name, prefix, sizes, components, approval_ref]):
         return jsonify({'error': 'Missing required fields'}), 400
@@ -4151,7 +4154,8 @@ def api_newproduct_generate():
             ps_desc=ps_desc,
             sizes=sizes,
             components=components,
-            constants=RAMCO_CONSTANTS
+            constants=RAMCO_CONSTANTS,
+            ecom_suffix=ecom_suffix
         )
         
         # Convert to CreateProductStructure format
