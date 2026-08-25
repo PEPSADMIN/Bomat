@@ -268,7 +268,11 @@ def _scan_is_current() -> bool:
             for fname in files:
                 if fname.startswith('~$'):
                     continue
-                if any(fname.endswith(ext) for ext in config.VALID_EXTENSIONS):
+                # Match the scanner's case-insensitive extension check so files
+                # with uppercase extensions (.XLSM) are counted here too — the
+                # scanner registers them, so a case-sensitive count was always
+                # lower than db_count and forced a full rescan on every startup.
+                if any(fname.lower().endswith(ext.lower()) for ext in config.VALID_EXTENSIONS):
                     file_count += 1
                     mtime = datetime.fromtimestamp(
                         os.path.getmtime(os.path.join(root, fname))
@@ -276,7 +280,15 @@ def _scan_is_current() -> bool:
                     if mtime > last_scan_dt:
                         return False  # a file changed since last scan
 
-        return db_count == file_count
+        # Only force a rescan when the DB is empty or a source file changed.
+        # Note: file_count (every xlsm/xlsx under the root, including files that
+        # legitimately fail to register as SFG BOMs) will normally exceed db_count
+        # (only successfully-registered products). Requiring exact equality made
+        # the server re-open all 252 workbooks on EVERY restart (~12s), during
+        # which the health endpoint is down and the watchdog could kill it.
+        # A brand-new or modified file is still caught above (mtime > last_scan),
+        # so this only skips when nothing relevant changed.
+        return file_count >= db_count
     except Exception:
         return False  # on any error, fall through to a full scan
 
