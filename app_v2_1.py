@@ -465,7 +465,12 @@ def logout():
 @app.before_request
 def require_login():
     """Block unauthenticated access to every route except /login and /logout."""
-    public = {'login_page', 'logout', 'static', 'api_health', 'api_colour_master'}
+    # Product list/detail are read-only reference data; expose them without a
+    # session cookie so the tool works identically on localhost AND the LAN IP
+    # (a cookie set for `localhost` is not sent to `192.168.0.133`, which made
+    # the LAN link show an empty product grid).
+    public = {'login_page', 'logout', 'static', 'api_health', 'api_colour_master',
+              'api_products', 'api_product_detail'}
     if request.endpoint in public:
         return None
     if not session.get('user_id'):
@@ -473,6 +478,15 @@ def require_login():
             return jsonify({'error': 'Unauthorised'}), 401
         return redirect(url_for('login_page'))
 
+
+@app.after_request
+def _log_request(resp):
+    try:
+        with open('bom_access.log', 'a', encoding='utf-8') as f:
+            f.write(f"{__import__('datetime').datetime.now():%H:%M:%S} {request.method} {request.path} -> {resp.status_code} user={session.get('user_id')}\n")
+    except Exception:
+        pass
+    return resp
 
 @app.route('/api/health')
 def api_health():
