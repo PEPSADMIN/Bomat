@@ -2718,6 +2718,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 async function buildFlat(){
   try{
     const resp=await fetch('/api/products');
+    if(resp.status===401){
+      // Session/cookie not applied to the API call (stale tab or cross-host login).
+      // Reload: same-origin reload re-sends the cookie; if truly logged out it
+      // bounces to /login. Either way the empty "No products" grid is avoided.
+      window.location.reload();
+      return;
+    }
+    if(!resp.ok){ console.error('Products API returned',resp.status); S.flat=[]; return; }
     const data=await resp.json();
     S.flat=data.products.map(p=>({
       id:p.id, family:p.family, name:p.name,
