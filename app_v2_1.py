@@ -5626,8 +5626,6 @@ def _ensure_ssl_cert():
         print(f"✓ SSL certificate generated (valid 10 years): {ssl_dir}")
         print(f"  ➜  Open https://{config.APP_LAN_IP}:{config.APP_PORT} in your browser.")
         print(f"  ➜  First visit: click 'Advanced' → 'Proceed to {config.APP_LAN_IP}' to accept.")
-        return cert_path, key_path
-
         _trust_cert(cert_path)  # install into Trusted Root so browsers don't warn
         return cert_path, key_path
 
