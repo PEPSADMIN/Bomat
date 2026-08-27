@@ -5539,6 +5539,30 @@ def api_user_activity_users():
 # HTTPS — self-signed certificate (eliminates "Insecure download blocked")
 # ============================================================================
 
+def _trust_cert(cert_path):
+    """Install our self-signed cert into the Windows Trusted Root store so
+    browsers treat https://localhost as trusted (no ERR_CERT_AUTHORITY_INVALID).
+    No-ops gracefully if certutil is missing or we lack admin rights."""
+    if not cert_path or not os.path.exists(cert_path):
+        return
+    try:
+        import subprocess
+        # -f forces add/overwrite; 'Root' = Trusted Root Certification Authorities
+        res = subprocess.run(
+            ['certutil', '-addstore', '-f', 'Root', cert_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        if res.returncode == 0:
+            print("✓ SSL certificate installed into Windows Trusted Root store "
+                  "(browser warning eliminated).")
+        else:
+            print("  Note: could not auto-trust cert (run as admin to suppress "
+                  "the browser warning). certutil:", (res.stderr or '').strip()[:120])
+    except Exception as e:
+        # Not fatal — server still runs over HTTPS, just with a browser warning.
+        print(f"  Note: cert auto-trust skipped ({e}).")
+
+
 def _ensure_ssl_cert():
     """Generate a self-signed SSL cert if one doesn't already exist."""
     ssl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ssl')
@@ -5546,6 +5570,7 @@ def _ensure_ssl_cert():
     key_path  = os.path.join(ssl_dir, 'key.pem')
 
     if os.path.exists(cert_path) and os.path.exists(key_path):
+        _trust_cert(cert_path)  # ensure it's in the trust store on every launch
         return cert_path, key_path
 
     os.makedirs(ssl_dir, exist_ok=True)
@@ -5587,6 +5612,9 @@ def _ensure_ssl_cert():
         print(f"✓ SSL certificate generated (valid 10 years): {ssl_dir}")
         print(f"  ➜  Open https://{config.APP_LAN_IP}:{config.APP_PORT} in your browser.")
         print(f"  ➜  First visit: click 'Advanced' → 'Proceed to {config.APP_LAN_IP}' to accept.")
+        return cert_path, key_path
+
+        _trust_cert(cert_path)  # install into Trusted Root so browsers don't warn
         return cert_path, key_path
 
     except ImportError:
