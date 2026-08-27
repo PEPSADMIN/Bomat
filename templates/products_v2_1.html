@@ -2716,16 +2716,24 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 });
 
 async function buildFlat(){
+  const _listEl=document.getElementById('prod-list');
   try{
     const resp=await fetch('/api/products');
     if(resp.status===401){
       // Session/cookie not applied to the API call (stale tab or cross-host login).
       // Reload: same-origin reload re-sends the cookie; if truly logged out it
       // bounces to /login. Either way the empty "No products" grid is avoided.
+      _listEl.innerHTML='<div class="no-results">Session expired — reloading…</div>';
       window.location.reload();
       return;
     }
-    if(!resp.ok){ console.error('Products API returned',resp.status); S.flat=[]; return; }
+    if(!resp.ok){
+      const _txt=await resp.text().catch(()=> '');
+      console.error('Products API error',resp.status,_txt.slice(0,300));
+      _listEl.innerHTML='<div class="no-results">Could not load products — server returned HTTP '+resp.status+'. Please re-login / refresh.</div>';
+      S.flat=[];
+      return;
+    }
     const data=await resp.json();
     S.flat=data.products.map(p=>({
       id:p.id, family:p.family, name:p.name,
@@ -2740,6 +2748,7 @@ async function buildFlat(){
     }));
   }catch(e){
     console.error('Failed to load products:',e);
+    if(_listEl) _listEl.innerHTML='<div class="no-results">Failed to load products: '+e.message+'. Check the Network tab and re-login.</div>';
     S.flat=[];
   }
 }
