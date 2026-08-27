@@ -1,5 +1,5 @@
 """
-PEPS BOM Automation Tool - Configuration
+PEPS Bomat Automation Tool - Configuration
 Version: 2.0
 Date: 21 May 2026
 
@@ -154,5 +154,5 @@ PROCESS_TIMEOUT = 300
 # VERSION INFO
 # ============================================================================
 APP_VERSION = '2.0'
-APP_NAME = 'PEPS BOM Automation Tool'
+APP_NAME = 'PEPS Bomat Automation Tool'
 APP_DESCRIPTION = 'Phase 2 - Configurator, Global Replace, New Product Wizard, Nearest BOM'

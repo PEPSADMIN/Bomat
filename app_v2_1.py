@@ -1,5 +1,5 @@
 """
-PEPS BOM Automation Tool - Flask Application
+PEPS Bomat Automation Tool - Flask Application
 Version: 2.1
 Date: 22 May 2026
 
@@ -1959,7 +1959,7 @@ def _api_formula_guide_inner():
     for col, w in [('A',4),('B',30),('C',55),('D',28)]:
         ws1.column_dimensions[col].width = w
 
-    title(ws1, 1, 'Q.ty Formula Calculator — How It Works  (PEPS BOM Tool)', cols='A:D')
+    title(ws1, 1, 'Q.ty Formula Calculator — How It Works  (PEPS Bomat Tool)', cols='A:D')
     ws1.merge_cells('A2:D2')
     _cell(ws1, 'A2').value = 'Instead of manually changing Q.ty in 75+ sizes one by one, enter a formula once and the tool calculates every size automatically.'
     _cell(ws1, 'A2').font  = hfont(bold=False, size=11, italic=True, color='475569')
@@ -3407,7 +3407,7 @@ def api_snapshot_download(snap_id):
         for i, w in enumerate(COL_W, 13):       ws.column_dimensions[_gcl(i)].width = w
 
         # ── Row 1: Main title (fill all cols, no merge) ───────────────────
-        title_text = 'PEPS BOM Tool  -  Replacement Change Report'
+        title_text = 'PEPS Bomat Tool  -  Replacement Change Report'
         for ci in range(1, 24):
             try:
                 c = ws.cell(1, ci, value=(title_text if ci == 1 else ''))
@@ -5597,7 +5597,7 @@ def _ensure_ssl_cert():
         import ipaddress, datetime
 
         key = rsa.generate_private_key(65537, 2048, default_backend())
-        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u'PEPS BOM Tool')])
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u'PEPS Bomat Tool')])
         san_list = [x509.DNSName(u'localhost'),
                     x509.IPAddress(ipaddress.IPv4Address(u'127.0.0.1'))]
         try:
@@ -5645,7 +5645,7 @@ def _ensure_ssl_cert():
 
 if __name__ == '__main__':
     print(f"\n{'='*60}")
-    print(f"PEPS BOM AUTOMATION TOOL - v2.1 (Product Structure)")
+    print(f"PEPS Bomat AUTOMATION TOOL - v2.1 (Product Structure)")
     print(f"{'='*60}\n")
 
     # Initialize database (will create settings table if not exists)
