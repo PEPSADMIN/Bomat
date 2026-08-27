@@ -5718,6 +5718,24 @@ if __name__ == '__main__':
         from cheroot.ssl.builtin import BuiltinSSLAdapter as _BuiltinSSLAdapter
         _cert_path, _key_path = ssl_ctx
         _server.ssl_adapter = _BuiltinSSLAdapter(certificate=_cert_path, private_key=_key_path)
+
+    # ── PLAIN-HTTP LISTENER (LAN, no certificate) ─────────────────────────────
+    # Chrome/Edge strictly reject self-signed certs on the LAN IP even when the
+    # CA is trusted, so we also expose the SAME app over plain HTTP on port 5080.
+    # No certificate is involved, so it works in every browser / every device.
+    _HTTP_PORT = 5080
+
+    def _run_http_lan():
+        try:
+            _http = _CherootServer((config.APP_HOST, _HTTP_PORT), app, numthreads=8)
+            print(f"LAN (HTTP, no-cert):   http://{config.APP_LAN_IP}:{_HTTP_PORT}")
+            _http.start()
+        except Exception as _e:
+            print(f"[BOM Tool] Plain-HTTP LAN listener on port {_HTTP_PORT} failed: {_e}")
+
+    import threading as _t
+    _t.Thread(target=_run_http_lan, daemon=True, name='http-lan').start()
+
     try:
         _server.start()
     except KeyboardInterrupt:
