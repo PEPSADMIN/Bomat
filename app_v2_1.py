@@ -1525,15 +1525,37 @@ def api_item_formula():
                     for si in _parse('xl/sharedStrings.xml').iter(f'{{{_WS}}}si'):
                         sst.append(''.join(x.text or '' for x in si.iter(f'{{{_WS}}}t')))
 
+                # Locate the item-code / quantity columns from the DATA header row,
+                # exactly like the BOM viewer (bom_engine) does — by header NAME, not
+                # a hard-coded column letter.  Prebuilt BOM layouts place the quantity
+                # in a different column (e.g. OTY/QTY) than the standard ActualQty(G),
+                # so hard-coding column G silently returned an empty quantity and the
+                # formula never appeared.  Fall back to E/G when the header is absent.
+                _ic_col, _qty_col = 'E', 'G'
                 for row_el in _parse(sheet_path).iter(f'{{{_WS}}}row'):
                     rn = int(row_el.get('r', 0))
-                    if rn < 2: continue
+                    if rn == 1:
+                        for c in row_el:
+                            col = ''.join(x for x in c.get('r','') if not x.isdigit())
+                            ve = c.find(f'{{{_WS}}}v')
+                            nm = ve.text if ve is not None else ''
+                            if c.get('t') == 's' and ve is not None:
+                                try: nm = sst[int(ve.text or 0)]
+                                except: nm = ''
+                            nm = (nm or '').strip().upper()
+                            if nm in ('ITEMCODE', 'ITEM CODE', 'ITEM_CODE'):
+                                _ic_col = col
+                            elif nm in ('OTY', 'QTY', 'QUANTITY', 'QTY.', 'ACTUALQTY'):
+                                _qty_col = col
+                        continue
+                    if rn < 2:
+                        continue
                     ic_val = ic_fml = qty_val = qty_fml = None
                     for c in row_el:
                         col = ''.join(x for x in c.get('r','') if not x.isdigit())
                         v = c.find(f'{{{_WS}}}v')
                         f = c.find(f'{{{_WS}}}f')
-                        if col == 'E':
+                        if col == _ic_col:
                             if f is not None:
                                 ic_fml = '=' + (f.text or '')
                                 ic_val = v.text if v is not None else None
@@ -1542,7 +1564,7 @@ def api_item_formula():
                                 except: ic_val = v.text
                             else:
                                 ic_val = v.text if v is not None else None
-                        elif col == 'G':
+                        elif col == _qty_col:
                             if f is not None: qty_fml = '=' + (f.text or '')
                             elif v is not None:
                                 try: qty_val = float(v.text or 0)
@@ -1576,10 +1598,10 @@ def api_item_formula():
         return _result[0]
 
     n = len(scan_products)
-    workers = min(6, n) if n else 1
+    workers = min(8, n) if n else 1
     print(f"[item-formula] '{code}' — scanning {n} products ({workers} workers)")
     import time as _t; _t0 = _t.time()
-    _SCAN_TIMEOUT = 25   # hard deadline: return whatever we have after 25 s
+    _SCAN_TIMEOUT = 40   # hard deadline: return whatever we have after 40 s
     _NEED_MATCHES = 5    # stop early once we have 5 hits (enough for majority vote)
     _raw_results = []
     try:
