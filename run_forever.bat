@@ -20,7 +20,7 @@ REM ── STARTUP GUARD ──────────────────�
 REM If a healthy BOM server already answers on port 5020, skip straight to
 REM the monitor loop — do NOT kill it.  This protects an existing instance
 REM started by Task Scheduler (or a previous loop) from being torn down.
-powershell -NoProfile -Command "try{$null=Invoke-WebRequest 'https://127.0.0.1:5020/api/health' -TimeoutSec 3 -SkipCertificateCheck -UseBasicParsing -EA Stop;exit 0}catch{exit 1}" < NUL >nul 2>&1
+powershell -NoProfile -Command "try{$null=Invoke-WebRequest 'http://127.0.0.1:5020/api/health' -TimeoutSec 3 -UseBasicParsing -EA Stop;exit 0}catch{exit 1}" < NUL >nul 2>&1
 if %errorlevel%==0 (
     echo [%date% %time%] Healthy server found on port 5020 -- skipping kill, entering monitor loop.
     echo [%date% %time%] Healthy server found on port 5020 -- skipping kill, entering monitor loop. >> server_loop.log

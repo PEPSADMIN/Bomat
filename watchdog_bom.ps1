@@ -13,7 +13,7 @@
 
 $logFile   = "D:\Hari JR. DATA\Development\Bom Tool\bom_server.log"
 $workDir   = "D:\Hari JR. DATA\Development\Bom Tool"
-$healthUrl = "https://localhost:5020/api/health"
+$healthUrl = "http://localhost:5020/api/health"
 $ts = { (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " [WATCHDOG]" }
 
 function Write-Log($msg) {
@@ -23,14 +23,11 @@ function Write-Log($msg) {
 }
 
 # Use curl.exe (native, bundled since Win10 1803) for the health check
-# instead of Invoke-WebRequest. PowerShell's own SSL-trust-callback
-# mechanisms (scriptblock or C# delegate) are unreliable for a
-# self-signed cert under non-interactive "-File" execution - both were
-# tried and both made every health check falsely report the server as
-# down, which then triggered an unnecessary restart. curl.exe -k just
-# skips cert validation directly, no workaround needed.
+# instead of Invoke-WebRequest, for consistency with the rest of this
+# script. The server is plain HTTP (no certificate) since 2026-08-27,
+# so no -k/cert workaround is needed here anymore.
 function Test-Health {
-    $code = & curl.exe -sk -o NUL -w "%{http_code}" --max-time 8 $healthUrl 2>$null
+    $code = & curl.exe -s -o NUL -w "%{http_code}" --max-time 8 $healthUrl 2>$null
     return ($code -eq "200")
 }
 
