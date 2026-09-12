@@ -17,14 +17,20 @@ if %errorlevel%==1 (
 )
 
 REM ── STARTUP GUARD ────────────────────────────────────────────────────────
-REM If a healthy BOM server already answers on port 5020, skip straight to
-REM the monitor loop — do NOT kill it.  This protects an existing instance
-REM started by Task Scheduler (or a previous loop) from being torn down.
+REM If a healthy BOM server already answers on port 5020, this instance is
+REM redundant — exit immediately instead of "entering the monitor loop".
+REM :loop always launches python.exe unconditionally regardless of how it's
+REM reached, so "skip to the loop" used to mean "retry-and-back-off every
+REM 60s forever" (see the EXIT_CODE==99 branch below), not actually just
+REM watching. That silently left a second, permanent, harmless-but-noisy
+REM run_forever.bat process behind every time this guard was hit — the
+REM watchdog task (every 5 min) already restarts the loop if it ever dies,
+REM so no standby loop is needed here for that.
 powershell -NoProfile -Command "try{$null=Invoke-WebRequest 'http://127.0.0.1:5020/api/health' -TimeoutSec 3 -UseBasicParsing -EA Stop;exit 0}catch{exit 1}" < NUL >nul 2>&1
 if %errorlevel%==0 (
-    echo [%date% %time%] Healthy server found on port 5020 -- skipping kill, entering monitor loop.
-    echo [%date% %time%] Healthy server found on port 5020 -- skipping kill, entering monitor loop. >> server_loop.log
-    goto loop
+    echo [%date% %time%] Healthy server found on port 5020 -- another instance is already serving. Exiting.
+    echo [%date% %time%] Healthy server found on port 5020 -- another instance is already serving. Exiting. >> server_loop.log
+    exit /b 0
 )
 
 REM No healthy server -- kill any zombie holding the port, then start fresh.
