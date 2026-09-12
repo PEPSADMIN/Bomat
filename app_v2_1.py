@@ -5572,96 +5572,6 @@ def api_user_activity_users():
 
 
 # ============================================================================
-# HTTPS — self-signed certificate (eliminates "Insecure download blocked")
-# ============================================================================
-
-def _trust_cert(cert_path):
-    """Install our self-signed cert into the Windows Trusted Root store so
-    browsers treat https://localhost as trusted (no ERR_CERT_AUTHORITY_INVALID).
-    No-ops gracefully if certutil is missing or we lack admin rights."""
-    if not cert_path or not os.path.exists(cert_path):
-        return
-    try:
-        import subprocess
-        # -f forces add/overwrite; 'Root' = Trusted Root Certification Authorities
-        res = subprocess.run(
-            ['certutil', '-addstore', '-f', 'Root', cert_path],
-            capture_output=True, text=True, timeout=30,
-        )
-        if res.returncode == 0:
-            print("✓ SSL certificate installed into Windows Trusted Root store "
-                  "(browser warning eliminated).")
-        else:
-            print("  Note: could not auto-trust cert (run as admin to suppress "
-                  "the browser warning). certutil:", (res.stderr or '').strip()[:120])
-    except Exception as e:
-        # Not fatal — server still runs over HTTPS, just with a browser warning.
-        print(f"  Note: cert auto-trust skipped ({e}).")
-
-
-def _ensure_ssl_cert():
-    """Generate a self-signed SSL cert if one doesn't already exist."""
-    ssl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ssl')
-    cert_path = os.path.join(ssl_dir, 'cert.pem')
-    key_path  = os.path.join(ssl_dir, 'key.pem')
-
-    if os.path.exists(cert_path) and os.path.exists(key_path):
-        _trust_cert(cert_path)  # ensure it's in the trust store on every launch
-        return cert_path, key_path
-
-    os.makedirs(ssl_dir, exist_ok=True)
-    try:
-        from cryptography import x509
-        from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.hazmat.backends import default_backend
-        import ipaddress, datetime
-
-        key = rsa.generate_private_key(65537, 2048, default_backend())
-        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u'PEPS Bomat Tool')])
-        san_list = [x509.DNSName(u'localhost'),
-                    x509.IPAddress(ipaddress.IPv4Address(u'127.0.0.1'))]
-        try:
-            san_list.append(x509.IPAddress(ipaddress.IPv4Address(config.APP_LAN_IP)))
-        except Exception:
-            pass
-
-        cert = (
-            x509.CertificateBuilder()
-            .subject_name(name).issuer_name(name)
-            .public_key(key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.utcnow())
-            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
-            .add_extension(x509.SubjectAlternativeName(san_list), critical=False)
-            .add_extension(x509.ExtendedKeyUsage(
-                [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
-            .sign(key, hashes.SHA256(), default_backend())
-        )
-
-        with open(key_path, 'wb') as f:
-            f.write(key.private_bytes(serialization.Encoding.PEM,
-                                       serialization.PrivateFormat.TraditionalOpenSSL,
-                                       serialization.NoEncryption()))
-        with open(cert_path, 'wb') as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
-
-        print(f"✓ SSL certificate generated (valid 10 years): {ssl_dir}")
-        print(f"  ➜  Open https://{config.APP_LAN_IP}:{config.APP_PORT} in your browser.")
-        print(f"  ➜  First visit: click 'Advanced' → 'Proceed to {config.APP_LAN_IP}' to accept.")
-        _trust_cert(cert_path)  # install into Trusted Root so browsers don't warn
-        return cert_path, key_path
-
-    except ImportError:
-        print("WARNING: 'cryptography' package not found — running over HTTP.")
-        print("         Install it with:  pip install cryptography")
-        return None, None
-    except Exception as e:
-        print(f"WARNING: SSL cert generation failed ({e}) — running over HTTP.")
-        return None, None
-
-# ============================================================================
 # STARTUP
 # ============================================================================
 
@@ -5687,18 +5597,8 @@ if __name__ == '__main__':
     print(f"Products registered: {stats['total_products']}")
     print(f"Total SKUs:          {stats['total_skus']}")
     print(f"Item master codes:   {len(ITEM_MASTER)}")
-    # Generate / load SSL certificate
-    cert_path, key_path = _ensure_ssl_cert()
-    ssl_ctx = (cert_path, key_path) if cert_path and key_path else None
-    scheme  = 'https' if ssl_ctx else 'http'
-
-    print(f"Local:               {scheme}://localhost:{config.APP_PORT}")
-    print(f"Network:             {scheme}://{config.APP_LAN_IP}:{config.APP_PORT}")
-    if ssl_ctx:
-        print(f"\n⚠  FIRST-TIME SETUP (one-time per browser):")
-        print(f"   Open {scheme}://{config.APP_LAN_IP}:{config.APP_PORT}")
-        print(f"   Click 'Advanced' → 'Proceed to {config.APP_LAN_IP} (unsafe)'")
-        print(f"   After that, downloads will work without any browser warnings.")
+    print(f"Local:               http://localhost:{config.APP_PORT}")
+    print(f"Network:             http://{config.APP_LAN_IP}:{config.APP_PORT}")
     print(f"{'='*60}\n")
 
     # Pre-warm the Nearest-BOM prefix index in the background so the first
@@ -5739,9 +5639,6 @@ if __name__ == '__main__':
     # be made to "just work" in Chrome/Edge on the LAN IP (strict cert/trust
     # handling), so HTTP avoids the whole class of problems and works in every
     # browser and on every device with no certificate warnings.
-    ssl_ctx = None
-    scheme  = 'http'
-
     _server = _CherootServer((config.APP_HOST, config.APP_PORT), app, numthreads=8)
     try:
         _server.start()
